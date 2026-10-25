@@ -15,6 +15,7 @@ jobs:
       - run: test -z "$(gofmt -l cmd internal)"
       - run: CGO_ENABLED=0 go build ./cmd/...
       - run: bash -n scripts/install-node.sh
+      - run: bash scripts/test-install-node.sh
       - run: docker build -t source-egg:ci .
       - run: docker run --rm source-egg:ci profiles
       - run: bash scripts/smoke-container.sh source-egg:ci

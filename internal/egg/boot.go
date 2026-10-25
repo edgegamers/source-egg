@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,7 +26,17 @@ type Egg struct {
 	Cache        *addons.Cache
 	Node         *http.Client
 	NodeEndpoint string
+	Progress     io.Writer
 }
+
+func (e *Egg) progress(message string) {
+	out := e.Progress
+	if out == nil {
+		out = os.Stdout
+	}
+	fmt.Fprintln(out, "SourceEgg | "+message)
+}
+
 type Prepared struct {
 	Managed    bool
 	Profile    game.Profile
@@ -59,6 +70,7 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 	}
 	result.Profile = p
 	result.Identity = id
+	e.progress("Preparing " + p.Name)
 	if err = os.MkdirAll(c.Dir, 0755); err != nil {
 		return result, err
 	}
@@ -78,6 +90,7 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 	if managedErr != nil && !os.IsNotExist(managedErr) {
 		return result, managedErr
 	}
+	e.progress("Checking for node-managed files...")
 	if e.Node == nil && c.NodeWaitSeconds > 0 {
 		deadline := time.NewTimer(time.Duration(c.NodeWaitSeconds) * time.Second)
 		defer deadline.Stop()
@@ -100,6 +113,7 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 	}
 	var response node.Response
 	if e.Node != nil {
+		e.progress("Connected to node; preparing shared files, framework cache and password policy...")
 		response, err = e.call(ctx, node.Request{Action: "prepare", Identity: id})
 		if err != nil {
 			return result, err
@@ -110,6 +124,7 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 	}
 	result.Managed = response.Managed
 	if response.Managed {
+		e.progress("Using node-managed base game files; local SteamCMD skipped")
 		g := response.Generation
 		if g.Identity != id {
 			return result, errors.New("node returned wrong game generation")
@@ -128,6 +143,7 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 		}
 		_, installedErr := content.InstalledBuild(c.Dir, id)
 		if c.UpdateGame || installedErr != nil {
+			e.progress("Installing/updating " + p.Name + " through SteamCMD; first download can take a while...")
 			if err = e.Installer.Install(ctx, id, c.Dir); err != nil {
 				return result, err
 			}
@@ -178,6 +194,7 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 func (e *Egg) frameworks(ctx context.Context, p game.Profile, response node.Response) error {
 	installed := map[string]bool{}
 	for _, f := range response.Frameworks {
+		e.progress("Applying cached " + f.Package.Name + " " + f.Package.Version)
 		if !filepath.IsLocal(f.Archive) {
 			return errors.New("invalid framework cache path")
 		}
@@ -199,6 +216,7 @@ func (e *Egg) frameworks(ctx context.Context, p game.Profile, response node.Resp
 		if !enabled || installed[name] {
 			continue
 		}
+		e.progress("Checking " + name + " release and preparing private installation...")
 		if e.Cache == nil {
 			e.Cache = addons.NewCache(filepath.Join(e.Config.Dir, ".source/cache"), nil)
 		}

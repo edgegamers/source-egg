@@ -13,6 +13,7 @@ import (
 
 	"github.com/edgegamers/source-egg/internal/fsx"
 	"github.com/edgegamers/source-egg/internal/node"
+	"github.com/edgegamers/source-egg/internal/nodeinstall"
 )
 
 var version = "dev"
@@ -28,7 +29,7 @@ func run() error {
 	flag.Parse()
 	args := flag.Args()
 	if len(args) == 0 {
-		return fmt.Errorf("usage: sourcenode [-config path] init|serve|status|doctor|passwords show UUID|update GAME [BRANCH]|prune|version")
+		return fmt.Errorf("usage: sourcenode [-config path] install [--yes] [--channel stable|beta]|init|serve|status|doctor|passwords show UUID|update GAME [BRANCH]|history GAME|pin UUID GENERATION|rollback GAME GENERATION|prune|version")
 	}
 	if args[0] == "version" {
 		fmt.Println(version)
@@ -47,6 +48,23 @@ func run() error {
 		}
 		defer root.Close()
 		return fsx.JSON(root, filepath.Base(*path), node.DefaultConfig(), 0600)
+	}
+	if args[0] == "install" {
+		if os.Geteuid() != 0 {
+			return fmt.Errorf("node installation requires root; run sudo sourcenode install")
+		}
+		options := flag.NewFlagSet("install", flag.ContinueOnError)
+		yes := options.Bool("yes", false, "keep existing settings or install defaults without prompts")
+		channel := options.String("channel", "", "stable or beta release channel")
+		if err := options.Parse(args[1:]); err != nil {
+			return err
+		}
+		if len(options.Args()) > 0 {
+			return fmt.Errorf("unexpected install arguments")
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return nodeinstall.Install(ctx, nodeinstall.Options{ConfigPath: *path, Yes: *yes, Channel: *channel, Input: os.Stdin, Output: os.Stdout})
 	}
 	config, e := node.LoadConfig(*path)
 	if e != nil {

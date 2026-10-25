@@ -6,10 +6,12 @@ Linux amd64, Docker and Pelican/Pterodactyl Wings. Node-managed mounts require k
 
 Current standalone CS:GO uses download app 740 and client/auth app 4465480. Its exact Steam authentication/client recipe still needs live acceptance. Do not substitute CS2 app 730. CS:GO metadata is reapplied after install/update; use a GSLT for the standalone client app.
 
-## Standalone
+## Install a server
+
+For shared files, [set up the optional Wings node](node.md) first. No node is required for standalone operation.
 
 1. Build/publish a dev image or wait for a successful release workflow.
-2. Import `pterodactyl/source-egg.json`. Verify dropdown rendering on the target panel; the runtime validates choices independently.
+2. In Pelican's admin importer, use `https://raw.githubusercontent.com/edgegamers/source-egg/main/pterodactyl/source-egg.json`. For Pterodactyl, download/import the JSON file. Verify dropdown rendering on the target panel; the runtime validates choices independently.
 
    The export embeds a square 512 × 512 Source-logo PNG as the Pelican egg icon. Updating/reimporting the egg applies the picture on panels supporting embedded icons. For manual upload, use `assets/source-logo.png`; older Pterodactyl panels may ignore this visual metadata.
 3. Choose the game and branch before first start. Changes on an existing volume fail with a new-volume/reinstall instruction.
@@ -22,23 +24,25 @@ SteamCMD is seeded into `/home/container/.source/steamcmd` so it can self-update
 
 ## Optional node
 
-On a Linux Wings node, using binaries built with `bash scripts/verify.sh`:
+The normal release install uses the same bootstrap/wizard flow as the reference egg:
 
 ```bash
-sudo bash scripts/install-node.sh --local ./dist/sourcenode
+curl -fsSL https://raw.githubusercontent.com/edgegamers/source-egg/main/scripts/install-node.sh | bash
 sudo sourcenode doctor
 sudo sourcenode status
 journalctl -u sourcenode -f
 ```
 
-After releases exist, omit `--local` to resolve/download a release and verify its checksum. `SOURCE_NODE_CHANNEL=beta` includes prereleases; `SOURCE_NODE_RELEASE=vX.Y.Z` selects a specific initial tag. There is no node self-updater yet; rerun the installer explicitly, preserving config/state.
+Wait for the release assets/image before running it. The bootstrap handles sudo, verifies the release and opens the Go wizard; no local build is required. `SOURCE_NODE_CHANNEL=beta` includes prereleases; `SOURCE_NODE_RELEASE=vX.Y.Z` selects an initial tag. Rerun the bootstrap to upgrade the binary, or `sudo sourcenode install` to change saved choices. [Full node guide](node.md) · [Local source builds](development.md).
 
 The daemon discovers exact approved image repositories through Docker, verifies each selected profile, and mounts a separate broker socket, base-game store and framework cache read-only. Containers never receive Docker or root control sockets. Boot waits up to 20 seconds for discovery; first downloads can take longer. `NODE_WAIT_SECONDS` can adjust the discovery wait (0–300) for testing.
 
-Edit `/etc/sourcenode/config.json` and restart the service. `sourcenode init` generates the full root-private config. Relevant defaults:
+The wizard writes `/etc/sourcenode/config.json` and enables/restarts the service. Advanced edits can be made directly, followed by a service restart. Relevant defaults:
 
 ```json
 {
+  "node_channel": "stable",
+  "prefetch_games": [],
   "shared": true,
   "framework_cache": true,
   "poll_seconds": 5,

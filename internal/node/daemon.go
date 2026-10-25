@@ -316,6 +316,7 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if e := d.discover(ctx); e != nil {
 		return e
 	}
+	go d.warmup(ctx)
 	ticker := time.NewTicker(time.Duration(d.Config.PollSeconds) * time.Second)
 	defer ticker.Stop()
 	updates := time.NewTicker(time.Duration(d.Config.CheckMinutes) * time.Minute)

@@ -1,6 +1,6 @@
 # Implementation status
 
-Core implementation on `codex/source-egg-implementation`. This records delivered behavior separately from the full-release proposal.
+The core implementation was merged into `main`. The reference-style installation follow-up is on `codex/reference-install-flow`. This records delivered behavior separately from the full-release proposal.
 
 ## Implemented
 
@@ -15,6 +15,7 @@ Core implementation on `codex/source-egg-implementation`. This records delivered
 - Opt-in generated join passwords scoped to game (default dev), server or node; persistence, rotation, root reveal and optional separate credential webhook.
 - Ordinary Discord events, masked/rotating console logs, local A2S state and saved crash reports.
 - Egg export, Dockerfile, local/release node installer, CI/release workflows and usage docs.
+- Reference-style sudo/TTY-aware bootstrap and interactive `sourcenode install` wizard, saved-setting preservation, headless setup and optional selected-game prefetch before servers exist.
 
 ## Verification
 
