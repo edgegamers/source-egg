@@ -382,9 +382,16 @@ func TestSetupRequiresExplicitHostWriterAndDisablesReboot(t *testing.T) {
 // Catches root-owned restored directories that prevent the game writing data.
 func TestRestoreNewDirectoriesInheritVolumeOwner(t *testing.T) {
 	m, s, _, _, _ := fixture(t)
-	if err := os.Chown(s.Volume, 1234, 1234); err != nil {
+	if os.Geteuid() == 0 {
+		if err := os.Chown(s.Volume, 1234, 1234); err != nil {
+			t.Fatal(err)
+		}
+	}
+	volumeInfo, err := os.Stat(s.Volume)
+	if err != nil {
 		t.Fatal(err)
 	}
+	expectedUID, expectedGID := ownerIDs(volumeInfo)
 	p := archive(t, m, s, []*tar.Header{{Name: "addons/plugin/data.cfg", Mode: 0600, Size: 1}})
 	if err := m.Restore(context.Background(), s, p); err != nil {
 		t.Fatal(err)
@@ -399,7 +406,7 @@ func TestRestoreNewDirectoriesInheritVolumeOwner(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if uid, gid := ownerIDs(info); uid != 1234 || gid != 1234 {
+		if uid, gid := ownerIDs(info); uid != expectedUID || gid != expectedGID {
 			t.Fatalf("%s owner=%d:%d", name, uid, gid)
 		}
 	}

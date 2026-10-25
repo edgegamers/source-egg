@@ -96,3 +96,5 @@ No live node provisioning, game download/client join, host cleanup, service unin
 Ruling: Used the existing authorized checkout on a new feature branch instead of creating another worktree; all changes remain reviewable and reversible without altering live nodes. Continuing the user's previously selected push-and-PR workflow using ShookEagle.
 
 Deferred minor: successful already-current automatic node update checks do not refresh the `last_node_update` diagnostic timestamp; manual check/update behavior and update scheduling are unaffected.
+
+GitHub CI initially exposed a root-only assumption in the ownership test's setup. The test now verifies the actual volume owner in both environments and still switches to a different game UID when run as root. The full race suite subsequently passed as unprivileged UID/GID 1001 with read-only source/module mounts, as well as the root ownership tests. Runtime code was unchanged by this CI correction.
