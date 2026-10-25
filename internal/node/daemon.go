@@ -18,10 +18,13 @@ import (
 	"github.com/edgegamers/source-egg/internal/content"
 	"github.com/edgegamers/source-egg/internal/fsx"
 	"github.com/edgegamers/source-egg/internal/game"
+	"github.com/edgegamers/source-egg/internal/metrics"
 	"github.com/edgegamers/source-egg/internal/passwords"
 )
 
 type State struct {
+	Map        string    `json:"map"`
+	Name       string    `json:"name"`
 	Boot       string    `json:"boot"`
 	Players    int       `json:"players"`
 	UpdatedAt  time.Time `json:"updated_at"`
@@ -40,6 +43,14 @@ type pending struct {
 }
 type Daemon struct {
 	Config           Config
+	frameworkPolicy  FrameworkPolicy
+	Version          string
+	startedAt        time.Time
+	metricsMu        sync.Mutex
+	metricsPrevious  map[string]metrics.DockerStats
+	metricSnapshot   metrics.Snapshot
+	metricAt         time.Time
+	hostCounter      metrics.HostCounter
 	Docker           *Docker
 	Store            *content.Store
 	Cache            *addons.Cache
@@ -96,6 +107,9 @@ func New(cfg Config) (*Daemon, error) {
 	}
 	if d.pins == nil {
 		return nil, errors.New("invalid saved pins")
+	}
+	if e = d.loadFrameworkPolicy(); e != nil {
+		return nil, e
 	}
 	return d, nil
 }
@@ -170,7 +184,7 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 				if !frameworkEnabled(s.Env, name) {
 					continue
 				}
-				pkg, e := d.Cache.Resolve(ctx, name, s.Env[strings.ToUpper(name)+"_VERSION"])
+				pkg, e := d.Cache.Resolve(ctx, name, d.frameworkPin(s, name))
 				if e != nil {
 					return out, e
 				}
@@ -209,7 +223,7 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 			return out, errors.New("invalid server state")
 		}
 		d.mu.Lock()
-		d.states[s.UUID] = State{s.Boot, r.Players, time.Now(), r.Generation, r.Ready}
+		d.states[s.UUID] = State{Boot: s.Boot, Players: r.Players, UpdatedAt: time.Now(), Generation: r.Generation, Ready: r.Ready, Map: r.Map, Name: r.Name}
 		p := d.pending[s.UUID]
 		d.mu.Unlock()
 		if !p.WarnedAt.IsZero() {

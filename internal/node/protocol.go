@@ -27,6 +27,7 @@ type Request struct {
 	Identity   game.Identity `json:"identity"`
 	Players    int           `json:"players,omitempty"`
 	Map        string        `json:"map,omitempty"`
+	Name       string        `json:"name,omitempty"`
 	Ready      bool          `json:"ready,omitempty"`
 	Generation string        `json:"generation,omitempty"`
 	Revision   string        `json:"revision,omitempty"`

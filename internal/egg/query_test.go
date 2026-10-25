@@ -27,8 +27,8 @@ func TestQueryPlayersHandlesChallengeAndSubtractsBots(t *testing.T) {
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	players, err := QueryPlayers(ctx, conn.LocalAddr().String())
-	if err != nil || players != 3 {
-		t.Fatal(players, err)
+	info, err := QueryInfo(ctx, conn.LocalAddr().String())
+	if err != nil || info.Players != 3 || info.Name != "name" || info.Map != "map" {
+		t.Fatal(info, err)
 	}
 }

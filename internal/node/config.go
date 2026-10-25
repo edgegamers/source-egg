@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edgegamers/source-egg/internal/game"
+	"github.com/edgegamers/source-egg/internal/metrics"
 	"github.com/edgegamers/source-egg/internal/passwords"
 )
 
@@ -19,31 +20,41 @@ type RestartPolicy struct {
 	WarnSeconds     int    `json:"warn_seconds"`
 }
 type Config struct {
-	NodeChannel           string        `json:"node_channel"`
-	PrefetchGames         []string      `json:"prefetch_games"`
-	StateDir              string        `json:"state_dir"`
-	SharedDir             string        `json:"shared_dir"`
-	CacheDir              string        `json:"cache_dir"`
-	SteamCMD              string        `json:"steamcmd"`
-	Images                []string      `json:"images"`
-	Shared                bool          `json:"shared"`
-	FrameworkCache        bool          `json:"framework_cache"`
-	PollSeconds           int           `json:"poll_seconds"`
-	CheckMinutes          int           `json:"check_minutes"`
-	Restart               RestartPolicy `json:"restart"`
-	PasswordScope         string        `json:"password_scope"`
-	PasswordIntervalHours int           `json:"password_interval_hours"`
-	Webhook               string        `json:"webhook,omitempty"`
-	PasswordWebhook       string        `json:"password_webhook,omitempty"`
-	WingsConfig           string        `json:"wings_config"`
-	SteamUsername         string        `json:"steam_username,omitempty"`
-	SteamPassword         string        `json:"steam_password,omitempty"`
+	Metrics                 metrics.Config `json:"metrics"`
+	NodeChannel             string         `json:"node_channel"`
+	PrefetchGames           []string       `json:"prefetch_games"`
+	StateDir                string         `json:"state_dir"`
+	SharedDir               string         `json:"shared_dir"`
+	CacheDir                string         `json:"cache_dir"`
+	SteamCMD                string         `json:"steamcmd"`
+	Images                  []string       `json:"images"`
+	Shared                  bool           `json:"shared"`
+	FrameworkCache          bool           `json:"framework_cache"`
+	FrameworkPinsEnabled    bool           `json:"framework_pins_enabled"`
+	FrameworkRefreshMinutes int            `json:"framework_refresh_minutes"`
+	FrameworkKeepDays       int            `json:"framework_keep_days"`
+	PollSeconds             int            `json:"poll_seconds"`
+	CheckMinutes            int            `json:"check_minutes"`
+	Restart                 RestartPolicy  `json:"restart"`
+	PasswordScope           string         `json:"password_scope"`
+	PasswordIntervalHours   int            `json:"password_interval_hours"`
+	Webhook                 string         `json:"webhook,omitempty"`
+	PasswordWebhook         string         `json:"password_webhook,omitempty"`
+	WingsConfig             string         `json:"wings_config"`
+	SteamUsername           string         `json:"steam_username,omitempty"`
+	SteamPassword           string         `json:"steam_password,omitempty"`
 }
 
 func DefaultConfig() Config {
-	return Config{NodeChannel: "stable", StateDir: "/var/lib/sourcenode", SharedDir: "/srv/source-shared", CacheDir: "/var/cache/sourcenode", SteamCMD: "/opt/steamcmd/steamcmd.sh", Images: []string{"ghcr.io/edgegamers/source-egg"}, Shared: true, FrameworkCache: true, PollSeconds: 5, CheckMinutes: 30, Restart: RestartPolicy{Mode: "empty", MaxDelayMinutes: 60, WarnSeconds: 60}, PasswordScope: "game", PasswordIntervalHours: 168}
+	return Config{Metrics: metrics.DefaultConfig(), NodeChannel: "stable", StateDir: "/var/lib/sourcenode", SharedDir: "/srv/source-shared", CacheDir: "/var/cache/sourcenode", SteamCMD: "/opt/steamcmd/steamcmd.sh", Images: []string{"ghcr.io/edgegamers/source-egg"}, Shared: true, FrameworkCache: true, FrameworkPinsEnabled: true, FrameworkRefreshMinutes: 60, FrameworkKeepDays: 30, PollSeconds: 5, CheckMinutes: 30, Restart: RestartPolicy{Mode: "empty", MaxDelayMinutes: 60, WarnSeconds: 60}, PasswordScope: "game", PasswordIntervalHours: 168}
 }
 func (c Config) Validate() error {
+	if e := c.Metrics.Validate(); e != nil {
+		return e
+	}
+	if c.FrameworkRefreshMinutes < 1 || c.FrameworkKeepDays < 0 {
+		return errors.New("invalid framework refresh/retention")
+	}
 	if c.NodeChannel != "stable" && c.NodeChannel != "beta" {
 		return errors.New("node_channel must be stable or beta")
 	}
