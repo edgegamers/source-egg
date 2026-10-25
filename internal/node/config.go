@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edgegamers/source-egg/internal/game"
 	"github.com/edgegamers/source-egg/internal/passwords"
 )
 
@@ -18,6 +19,8 @@ type RestartPolicy struct {
 	WarnSeconds     int    `json:"warn_seconds"`
 }
 type Config struct {
+	NodeChannel           string        `json:"node_channel"`
+	PrefetchGames         []string      `json:"prefetch_games"`
 	StateDir              string        `json:"state_dir"`
 	SharedDir             string        `json:"shared_dir"`
 	CacheDir              string        `json:"cache_dir"`
@@ -38,9 +41,17 @@ type Config struct {
 }
 
 func DefaultConfig() Config {
-	return Config{StateDir: "/var/lib/sourcenode", SharedDir: "/srv/source-shared", CacheDir: "/var/cache/sourcenode", SteamCMD: "/opt/steamcmd/steamcmd.sh", Images: []string{"ghcr.io/edgegamers/source-egg"}, Shared: true, FrameworkCache: true, PollSeconds: 5, CheckMinutes: 30, Restart: RestartPolicy{Mode: "empty", MaxDelayMinutes: 60, WarnSeconds: 60}, PasswordScope: "game", PasswordIntervalHours: 168}
+	return Config{NodeChannel: "stable", StateDir: "/var/lib/sourcenode", SharedDir: "/srv/source-shared", CacheDir: "/var/cache/sourcenode", SteamCMD: "/opt/steamcmd/steamcmd.sh", Images: []string{"ghcr.io/edgegamers/source-egg"}, Shared: true, FrameworkCache: true, PollSeconds: 5, CheckMinutes: 30, Restart: RestartPolicy{Mode: "empty", MaxDelayMinutes: 60, WarnSeconds: 60}, PasswordScope: "game", PasswordIntervalHours: 168}
 }
 func (c Config) Validate() error {
+	if c.NodeChannel != "stable" && c.NodeChannel != "beta" {
+		return errors.New("node_channel must be stable or beta")
+	}
+	for _, key := range c.PrefetchGames {
+		if _, err := game.Lookup(key); err != nil {
+			return err
+		}
+	}
 	for _, path := range []string{c.StateDir, c.SharedDir, c.CacheDir, c.SteamCMD} {
 		if !filepath.IsAbs(path) || path == "/" {
 			return errors.New("node paths must be absolute and non-root")

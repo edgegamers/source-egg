@@ -1,59 +1,87 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Verify a release, provision host dependencies, then open the Go setup wizard.
 set -euo pipefail
 
-# Run on a Linux Wings node. --local accepts an already built node binary.
-[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || { echo 'Linux x86_64 required' >&2; exit 1; }
-[[ $EUID == 0 ]] || { echo 'Run with sudo on the Wings node' >&2; exit 1; }
-source_node_binary=''
-source_node_tmp=$(mktemp -d)
-trap 'rm -rf -- "$source_node_tmp"' EXIT
-if [[ ${1:-} == --local ]]; then
-  [[ $# == 2 && -f $2 ]] || { echo 'usage: install-node.sh --local /path/to/sourcenode' >&2; exit 1; }
-  source_node_binary=$(realpath -- "$2")
+release=${SOURCE_NODE_RELEASE:-}
+channel=${SOURCE_NODE_CHANNEL:-stable}
+repo=${SOURCE_EGG_REPOSITORY:-edgegamers/source-egg}
+local_binary=''
+headless=false
+forward=()
+while (($#)); do
+  case "$1" in
+    --yes) headless=true; forward+=(--yes); shift;;
+    --local) [[ $# -ge 2 && -z $local_binary && -f $2 ]] || { echo 'Usage: install-node.sh [--local /path/to/sourcenode] [--yes]' >&2; exit 2; }; local_binary=$(realpath -- "$2"); shift 2;;
+    -h|--help) echo 'Usage: install-node.sh [--local /path/to/sourcenode] [--yes]'; exit 0;;
+    *) echo "Unknown argument: $1" >&2; exit 2;;
+  esac
+done
+[[ $channel == stable || $channel == beta ]] || { echo 'SOURCE_NODE_CHANNEL must be stable or beta.' >&2; exit 1; }
+[[ -z $release || $release =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]] || { echo 'SOURCE_NODE_RELEASE must be an exact tag such as v1.2.3.' >&2; exit 1; }
+[[ $repo =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo 'SOURCE_EGG_REPOSITORY must be owner/repository.' >&2; exit 1; }
+[[ $(uname -s) == Linux && $(uname -m) == x86_64 ]] || { echo 'The node requires Linux x86-64.' >&2; exit 1; }
+if ! $headless && ! (exec 3<>/dev/tty) 2>/dev/null; then
+  echo 'The wizard needs a terminal. Run from an SSH terminal, or pass --yes for saved settings/defaults.' >&2
+  exit 1
 fi
-command -v apt-get >/dev/null || { echo 'Bootstrap supports Debian/Ubuntu; install dependencies manually on other systems' >&2; exit 1; }
-apt-get update
-apt-get install -y ca-certificates curl jq lib32gcc-s1 lib32stdc++6
-if [[ -z $source_node_binary ]]; then
-  source_node_repo=${SOURCE_EGG_REPOSITORY:-edgegamers/source-egg}
-  source_node_channel=${SOURCE_NODE_CHANNEL:-stable}
-  [[ $source_node_channel == stable || $source_node_channel == beta ]] || { echo 'Channel must be stable or beta' >&2; exit 1; }
-  source_node_tag=${SOURCE_NODE_RELEASE:-}
-  if [[ -z $source_node_tag ]]; then
-    source_node_tag=$(curl -fsSL "https://api.github.com/repos/$source_node_repo/releases?per_page=100" | jq -r --arg channel "$source_node_channel" '[.[] | select(.draft == false) | select($channel == "beta" or .prerelease == false)][0].tag_name // empty')
+root=()
+if [[ $EUID != 0 ]]; then
+  command -v sudo >/dev/null || { echo 'sudo is required when not running as root.' >&2; exit 1; }
+  root=(sudo)
+fi
+command -v dpkg-query >/dev/null && command -v apt-get >/dev/null || { echo 'This bootstrap supports Debian/Ubuntu with apt.' >&2; exit 1; }
+scratch=$(mktemp -d)
+trap 'rm -rf -- "$scratch"' EXIT
+if ! command -v jq >/dev/null; then
+  "${root[@]}" apt-get update
+  "${root[@]}" apt-get install -y --no-install-recommends jq
+fi
+if [[ -n $local_binary ]]; then
+  cp -- "$local_binary" "$scratch/sourcenode_linux_amd64"
+else
+  api="https://api.github.com/repos/$repo/releases"
+  if [[ -n $release ]]; then endpoint="$api/tags/$release";
+  elif [[ $channel == beta ]]; then endpoint="$api?per_page=100";
+  else endpoint="$api/latest"; fi
+  if ! curl -fsSL -H 'Accept: application/vnd.github+json' "$endpoint" -o "$scratch/releases.json"; then
+    echo 'No matching published release could be downloaded. Publish a release and wait for its workflow to succeed, or use --local.' >&2
+    exit 1
   fi
-  [[ -n $source_node_tag ]] || { echo 'No published release; build locally and use --local' >&2; exit 1; }
-  curl -fsSL "https://github.com/$source_node_repo/releases/download/$source_node_tag/sourcenode_linux_amd64" -o "$source_node_tmp/sourcenode_linux_amd64"
-  curl -fsSL "https://github.com/$source_node_repo/releases/download/$source_node_tag/sourcenode_linux_amd64.sha256" -o "$source_node_tmp/sourcenode_linux_amd64.sha256"
-  (cd "$source_node_tmp" && sha256sum -c sourcenode_linux_amd64.sha256)
-  source_node_binary=$source_node_tmp/sourcenode_linux_amd64
+  if [[ -z $release && $channel == beta ]]; then
+    jq -e 'first(.[] | select(.draft == false))' "$scratch/releases.json" > "$scratch/release.json"
+  else cp "$scratch/releases.json" "$scratch/release.json"; fi
+  resolved=$(jq -er '.tag_name | select(type == "string")' "$scratch/release.json")
+  [[ $resolved =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ && ( -z $release || $release == "$resolved" ) ]] || { echo 'GitHub returned an invalid or unexpected release tag.' >&2; exit 1; }
+  jq -e '.draft == false and (.prerelease | type) == "boolean" and (.assets | map(.name) | index("sourcenode_linux_amd64") != null)' "$scratch/release.json" >/dev/null || { echo "Release $resolved has no complete node assets. Wait for its workflow to succeed." >&2; exit 1; }
+  checksum=$(jq -er '.assets | map(.name) | if index("checksums.txt") != null then "checksums.txt" elif index("sourcenode_linux_amd64.sha256") != null then "sourcenode_linux_amd64.sha256" else error("Release checksum is not available yet") end' "$scratch/release.json")
+  if [[ -z $release && $channel == stable && $(jq -r '.prerelease' "$scratch/release.json") != false ]]; then echo 'Stable lookup returned a prerelease.' >&2; exit 1; fi
+  [[ $(jq -r '.prerelease' "$scratch/release.json") != true ]] || channel=beta
+  release=$resolved
+  echo "Installing $release (node release channel: $channel)"
+  base="https://github.com/$repo/releases/download/$release"
+  curl -fsSL "$base/sourcenode_linux_amd64" -o "$scratch/sourcenode_linux_amd64"
+  curl -fsSL "$base/$checksum" -o "$scratch/checksums.txt"
+  (
+    cd "$scratch"
+    # Verify only the fixed expected binary; never execute checksum-file paths.
+    awk '($2 == "sourcenode_linux_amd64" || $2 == "*sourcenode_linux_amd64") && length($1) == 64 && $1 !~ /[^0-9a-fA-F]/ {print $1 "  sourcenode_linux_amd64"; count++} END {if(count != 1) exit 1}' checksums.txt > node.sha256
+    sha256sum -c node.sha256
+  )
 fi
-mkdir -p /opt/steamcmd /etc/sourcenode /var/lib/sourcenode /var/cache/sourcenode /srv/source-shared
-chmod 700 /etc/sourcenode /var/lib/sourcenode
-if [[ ! -f /opt/steamcmd/steamcmd.sh ]]; then
-  curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz -o "$source_node_tmp/steamcmd.tar.gz"
-  tar -xzf "$source_node_tmp/steamcmd.tar.gz" -C /opt/steamcmd
+chmod 700 "$scratch/sourcenode_linux_amd64"
+missing=()
+for package in lib32gcc-s1 lib32stdc++6; do
+  [[ $(dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null || true) == installed ]] || missing+=("$package")
+done
+if ((${#missing[@]})); then
+  echo "Installing host SteamCMD runtime: ${missing[*]}"
+  "${root[@]}" apt-get update
+  "${root[@]}" apt-get install -y --no-install-recommends "${missing[@]}"
 fi
-install -m 0755 "$source_node_binary" /usr/local/bin/sourcenode
-if [[ ! -f /etc/sourcenode/config.json ]]; then sourcenode init; fi
-cat > /etc/systemd/system/sourcenode.service <<'UNIT'
-[Unit]
-Description=Source Egg node service
-After=docker.service network-online.target
-Wants=network-online.target
-Requires=docker.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/sourcenode serve
-Restart=on-failure
-RestartSec=5
-UMask=0022
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-systemctl daemon-reload
-systemctl enable --now sourcenode
-echo 'Installed. Edit /etc/sourcenode/config.json, then systemctl restart sourcenode.'
-echo 'Generated join passwords are opt-in; default node sharing scope is game.'
+if $headless; then
+  "${root[@]}" "$scratch/sourcenode_linux_amd64" install --channel "$channel" "${forward[@]}" </dev/null
+else
+  # curl | bash consumes stdin; the wizard must read the controlling terminal.
+  "${root[@]}" "$scratch/sourcenode_linux_amd64" install --channel "$channel" "${forward[@]}" </dev/tty
+fi
