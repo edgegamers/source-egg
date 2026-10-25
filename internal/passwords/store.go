@@ -1,8 +1,6 @@
 package passwords
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"os"
 	"regexp"
@@ -20,10 +18,10 @@ type Assignment struct {
 	NextAt      time.Time `json:"next_at"`
 }
 type Store struct {
-	mu       sync.Mutex
-	dir      string
-	interval time.Duration
-	records  map[string]Assignment
+	mu      sync.Mutex
+	dir     string
+	options Options
+	records map[string]Assignment
 }
 
 var serverKey = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
@@ -46,8 +44,14 @@ func Key(scope, server, title string) (string, error) {
 	return "", errors.New("password scope must be game, server, or node")
 }
 func Open(dir string, interval time.Duration) (*Store, error) {
-	if interval < 0 {
-		return nil, errors.New("negative password interval")
+	return OpenWithOptions(dir, Options{Interval: interval})
+}
+
+// OpenWithOptions applies format and schedule changes only to future
+// generations. Existing assignments and their persisted due dates are retained.
+func OpenWithOptions(dir string, options Options) (*Store, error) {
+	if e := options.Validate(); e != nil {
+		return nil, e
 	}
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return nil, e
@@ -55,7 +59,7 @@ func Open(dir string, interval time.Duration) (*Store, error) {
 	if e := os.Chmod(dir, 0700); e != nil {
 		return nil, e
 	}
-	s := &Store{dir: dir, interval: interval, records: map[string]Assignment{}}
+	s := &Store{dir: dir, options: options, records: map[string]Assignment{}}
 	r, e := os.OpenRoot(dir)
 	if e != nil {
 		return nil, e
@@ -81,13 +85,18 @@ func (s *Store) Get(scope, server, title string, now time.Time) (Assignment, err
 	if ok && (a.NextAt.IsZero() || now.Before(a.NextAt)) {
 		return a, nil
 	}
-	var raw [18]byte
-	if _, e = rand.Read(raw[:]); e != nil {
-		return Assignment{}, e
+	password, e := s.options.generate()
+	if e != nil {
+		return a, e
 	}
-	next := Assignment{Password: base64.RawURLEncoding.EncodeToString(raw[:]), Revision: fsx.Token(), GeneratedAt: now.UTC()}
-	if s.interval > 0 {
-		next.NextAt = now.Add(s.interval).UTC()
+	next := Assignment{Password: password, Revision: fsx.Token(), GeneratedAt: now.UTC()}
+	if s.options.CalendarMonths > 0 {
+		next.NextAt, e = NextCalendarMonth(now, s.options.CalendarMonths)
+		if e != nil {
+			return a, e
+		}
+	} else if s.options.Interval > 0 {
+		next.NextAt = now.Add(s.options.Interval).UTC()
 	}
 	// Publish to memory only after durable state replacement succeeds.
 	records := make(map[string]Assignment, len(s.records)+1)
