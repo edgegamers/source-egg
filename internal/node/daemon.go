@@ -19,6 +19,8 @@ import (
 	"github.com/edgegamers/source-egg/internal/fsx"
 	"github.com/edgegamers/source-egg/internal/game"
 	"github.com/edgegamers/source-egg/internal/metrics"
+	"github.com/edgegamers/source-egg/internal/observability"
+	"github.com/edgegamers/source-egg/internal/operations"
 	"github.com/edgegamers/source-egg/internal/passwords"
 )
 
@@ -45,6 +47,11 @@ type Daemon struct {
 	Config           Config
 	frameworkPolicy  FrameworkPolicy
 	Version          string
+	Observation      *observability.Manager
+	Operations       *operations.Manager
+	generatedSecrets map[string]string
+	frameworkSeen    map[string]map[string]string
+	lastNodeUpdate   map[string]any
 	startedAt        time.Time
 	metricsMu        sync.Mutex
 	metricsPrevious  map[string]metrics.DockerStats
@@ -76,7 +83,7 @@ func New(cfg Config) (*Daemon, error) {
 	if e := os.MkdirAll(cfg.StateDir, 0700); e != nil {
 		return nil, e
 	}
-	pw, e := passwords.Open(filepath.Join(cfg.StateDir, "passwords"), time.Duration(cfg.PasswordIntervalHours)*time.Hour)
+	pw, e := passwords.OpenWithOptions(filepath.Join(cfg.StateDir, "passwords"), cfg.passwordOptions())
 	if e != nil {
 		return nil, e
 	}
@@ -111,6 +118,12 @@ func New(cfg Config) (*Daemon, error) {
 	if e = d.loadFrameworkPolicy(); e != nil {
 		return nil, e
 	}
+	d.generatedSecrets = map[string]string{}
+	d.frameworkSeen = map[string]map[string]string{}
+	if e = d.initModules(); e != nil {
+		return nil, e
+	}
+	d.Cache.Refresh = time.Duration(cfg.FrameworkRefreshMinutes) * time.Minute
 	return d, nil
 }
 func (d *Daemon) saveRefs() error {
@@ -133,7 +146,7 @@ func (d *Daemon) Handler(bound Server) http.Handler {
 			return
 		}
 		var req Request
-		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 2<<20))
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&req) != nil || req.Version != ProtocolVersion || req.Identity != bound.Identity {
 			reply(400, Response{Error: "invalid protocol or game identity"})
@@ -147,6 +160,9 @@ func (d *Daemon) Handler(bound Server) http.Handler {
 		out, e := d.handle(r.Context(), current, req)
 		if e != nil {
 			log.Printf("node operation %s failed for %s: %v", req.Action, current.UUID, e)
+			if req.Action == "prepare" || req.Action == "applied" {
+				d.notice(r.Context(), "push.failed", current, map[string]any{"error": e.Error()})
+			}
 			reply(503, Response{Error: "operation unavailable; see node journal"})
 			return
 		}
@@ -219,13 +235,16 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 		delete(d.pending, s.UUID)
 		return out, d.saveRefs()
 	case "state":
-		if r.Players < -1 || r.Players > 128 || len(r.Map) > 128 {
+		if r.Players < -1 || r.Players > 128 || len(r.Map) > 128 || len(r.Name) > 128 {
 			return out, errors.New("invalid server state")
 		}
 		d.mu.Lock()
 		d.states[s.UUID] = State{Boot: s.Boot, Players: r.Players, UpdatedAt: time.Now(), Generation: r.Generation, Ready: r.Ready, Map: r.Map, Name: r.Name}
 		p := d.pending[s.UUID]
 		d.mu.Unlock()
+		if r.Ready {
+			d.observeFrameworks(ctx, s)
+		}
 		if !p.WarnedAt.IsZero() {
 			out.RestartSeconds = int(time.Until(p.WarnedAt.Add(time.Duration(d.Config.Restart.WarnSeconds) * time.Second)).Seconds())
 			if out.RestartSeconds < 1 {
@@ -258,8 +277,23 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 		d.mu.Lock()
 		d.passwordRestarts[s.UUID] = a.Revision
 		d.mu.Unlock()
+	case "logs":
+		if len(r.Console) > 32 {
+			return out, errors.New("console batch exceeds limit")
+		}
+		for _, line := range r.Console {
+			if len(line) > 4000 {
+				return out, errors.New("console line exceeds limit")
+			}
+		}
+		if s.Env["ENABLE_LOG_FILES"] != "0" {
+			metadata := d.observationServer(s)
+			for _, line := range r.Console {
+				d.Observation.Log(metadata, "console", redactServer(s, line))
+			}
+		}
 	case "crash":
-		if len(r.Console) > 64 {
+		if len(r.Console) > 500 {
 			return out, errors.New("crash tail exceeds limit")
 		}
 		for _, line := range r.Console {
@@ -267,16 +301,19 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 				return out, errors.New("crash line exceeds limit")
 			}
 		}
-		root, e := os.OpenRoot(d.Config.StateDir)
-		if e != nil {
-			return out, e
+		lines := make([]string, len(r.Console))
+		for i, line := range r.Console {
+			lines[i] = redactServer(s, line)
 		}
-		defer root.Close()
-		bundle := "crashes/" + s.UUID + "/" + time.Now().UTC().Format("20060102T150405") + "-" + fsx.Token() + ".json"
-		if e = fsx.JSON(root, bundle, map[string]any{"server": s.UUID, "game": s.Identity.Game, "exit_code": r.ExitCode, "console": r.Console}, 0600); e != nil {
-			return out, e
+		out.Queued = d.Observation.Crash(d.observationServer(s), observability.CrashReport{ExitCode: r.ExitCode, Lines: lines})
+		if out.Queued {
+			d.notice(ctx, "crash", s, map[string]any{"exit_code": r.ExitCode, "bundle": "queued; use sourcenode crashes " + s.UUID})
 		}
-		d.notice(ctx, "server.crash", s, map[string]any{"bundle": bundle, "exit_code": r.ExitCode})
+	case "boot-failed":
+		if len(r.Message) > 512 {
+			return out, errors.New("boot failure message exceeds limit")
+		}
+		d.notice(ctx, "push.failed", s, map[string]any{"error": redactServer(s, r.Message)})
 	default:
 		return out, errors.New("unsupported node operation")
 	}
@@ -300,12 +337,16 @@ func (d *Daemon) password(ctx context.Context, s Server) (passwords.Assignment, 
 	if e != nil {
 		return a, e
 	}
+	d.mu.Lock()
+	d.generatedSecrets[s.UUID] = a.Password
+	d.mu.Unlock()
 	if d.Config.PasswordWebhook != "" {
 		d.deliverPassword(ctx, s, scope, a)
 	}
 	return a, nil
 }
 func (d *Daemon) Run(ctx context.Context) error {
+	d.startedAt = time.Now()
 	lock, err := d.lock()
 	if err != nil {
 		return err
@@ -331,6 +372,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 		return e
 	}
 	go d.warmup(ctx)
+	moduleCtx, cancelModules := context.WithCancel(ctx)
+	moduleDone := make(chan struct{})
+	go func() { d.runModules(moduleCtx); close(moduleDone) }()
+	defer func() { cancelModules(); <-moduleDone }()
 	ticker := time.NewTicker(time.Duration(d.Config.PollSeconds) * time.Second)
 	defer ticker.Stop()
 	updates := time.NewTicker(time.Duration(d.Config.CheckMinutes) * time.Minute)
@@ -354,6 +399,9 @@ func (d *Daemon) discover(ctx context.Context) error {
 	if e != nil {
 		return e
 	}
+	d.mu.Lock()
+	previous := d.servers
+	d.mu.Unlock()
 	fresh := map[string]Server{}
 	for _, s := range servers {
 		fresh[s.UUID] = s
@@ -368,12 +416,31 @@ func (d *Daemon) discover(ctx context.Context) error {
 		}
 		if e = d.attach(s); e != nil {
 			log.Printf("node attach failed for %s: %v", s.UUID, e)
+			d.notice(ctx, "push.failed", s, map[string]any{"error": e.Error()})
 			continue
 		}
 	}
 	d.mu.Lock()
 	d.servers = fresh
 	d.mu.Unlock()
+	for id, s := range fresh {
+		old, exists := previous[id]
+		if s.Running && (!exists || !old.Running || old.Boot != s.Boot) {
+			d.notice(ctx, "server.start", s, nil)
+			go func() {
+				if e := d.Operations.OnStart(ctx, d.operationServer(s)); e != nil {
+					log.Printf("on-start cleanup: %v", e)
+				}
+			}()
+		} else if exists && old.Running && !s.Running {
+			d.notice(ctx, "server.stop", s, map[string]any{"reason": d.stopReason(s), "exit_code": s.ExitCode})
+		}
+	}
+	for id, s := range previous {
+		if _, exists := fresh[id]; !exists && s.Running {
+			d.notice(ctx, "server.stop", s, map[string]any{"reason": "container removed"})
+		}
+	}
 	d.reconcile()
 	d.mu.Lock()
 	root, e := os.OpenRoot(d.Config.StateDir)

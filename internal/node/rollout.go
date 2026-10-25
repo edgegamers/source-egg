@@ -55,6 +55,7 @@ func (d *Daemon) reconcile() {
 	}
 	d.mu.Unlock()
 	changed := false
+	deferred := []Server{}
 	for _, s := range servers {
 		if !s.Running || s.Env["SOURCE_MODE"] == "standalone" {
 			continue
@@ -79,16 +80,22 @@ func (d *Daemon) reconcile() {
 		}
 		if p, ok := d.pending[s.UUID]; !ok || p.Generation != g.Key {
 			d.pending[s.UUID] = pending{Generation: g.Key, Since: time.Now()}
+			if d.Config.Restart.Mode != "immediate" {
+				deferred = append(deferred, s)
+			}
 			changed = true
 		}
 		d.mu.Unlock()
 	}
 	if changed {
 		d.mu.Lock()
-		defer d.mu.Unlock()
 		if err := d.saveRefs(); err != nil {
 			log.Printf("pending state save failed: %v", err)
 		}
+		d.mu.Unlock()
+	}
+	for _, s := range deferred {
+		d.notice(context.Background(), "restart.deferred", s, map[string]any{"policy": d.Config.Restart.Mode})
 	}
 }
 func (d *Daemon) rollout(ctx context.Context) {

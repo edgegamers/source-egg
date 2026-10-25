@@ -9,7 +9,10 @@ import (
 	"time"
 
 	"github.com/edgegamers/source-egg/internal/game"
+	"github.com/edgegamers/source-egg/internal/lifecycle"
 	"github.com/edgegamers/source-egg/internal/metrics"
+	"github.com/edgegamers/source-egg/internal/observability"
+	"github.com/edgegamers/source-egg/internal/operations"
 	"github.com/edgegamers/source-egg/internal/passwords"
 )
 
@@ -20,35 +23,73 @@ type RestartPolicy struct {
 	WarnSeconds     int    `json:"warn_seconds"`
 }
 type Config struct {
-	Metrics                 metrics.Config `json:"metrics"`
-	NodeChannel             string         `json:"node_channel"`
-	PrefetchGames           []string       `json:"prefetch_games"`
-	StateDir                string         `json:"state_dir"`
-	SharedDir               string         `json:"shared_dir"`
-	CacheDir                string         `json:"cache_dir"`
-	SteamCMD                string         `json:"steamcmd"`
-	Images                  []string       `json:"images"`
-	Shared                  bool           `json:"shared"`
-	FrameworkCache          bool           `json:"framework_cache"`
-	FrameworkPinsEnabled    bool           `json:"framework_pins_enabled"`
-	FrameworkRefreshMinutes int            `json:"framework_refresh_minutes"`
-	FrameworkKeepDays       int            `json:"framework_keep_days"`
-	PollSeconds             int            `json:"poll_seconds"`
-	CheckMinutes            int            `json:"check_minutes"`
-	Restart                 RestartPolicy  `json:"restart"`
-	PasswordScope           string         `json:"password_scope"`
-	PasswordIntervalHours   int            `json:"password_interval_hours"`
-	Webhook                 string         `json:"webhook,omitempty"`
-	PasswordWebhook         string         `json:"password_webhook,omitempty"`
-	WingsConfig             string         `json:"wings_config"`
-	SteamUsername           string         `json:"steam_username,omitempty"`
-	SteamPassword           string         `json:"steam_password,omitempty"`
+	Operations              operations.Config    `json:"operations"`
+	Observability           observability.Config `json:"observability"`
+	SelfUpdate              lifecycle.Config     `json:"self_update"`
+	PasswordFormat          string               `json:"password_format"`
+	PasswordMonths          int                  `json:"password_calendar_months"`
+	PasswordWords           int                  `json:"password_words"`
+	Metrics                 metrics.Config       `json:"metrics"`
+	NodeChannel             string               `json:"node_channel"`
+	PrefetchGames           []string             `json:"prefetch_games"`
+	StateDir                string               `json:"state_dir"`
+	SharedDir               string               `json:"shared_dir"`
+	CacheDir                string               `json:"cache_dir"`
+	SteamCMD                string               `json:"steamcmd"`
+	Images                  []string             `json:"images"`
+	Shared                  bool                 `json:"shared"`
+	FrameworkCache          bool                 `json:"framework_cache"`
+	FrameworkPinsEnabled    bool                 `json:"framework_pins_enabled"`
+	FrameworkRefreshMinutes int                  `json:"framework_refresh_minutes"`
+	FrameworkKeepDays       int                  `json:"framework_keep_days"`
+	PollSeconds             int                  `json:"poll_seconds"`
+	CheckMinutes            int                  `json:"check_minutes"`
+	Restart                 RestartPolicy        `json:"restart"`
+	PasswordScope           string               `json:"password_scope"`
+	PasswordIntervalHours   int                  `json:"password_interval_hours"`
+	Webhook                 string               `json:"webhook,omitempty"`
+	PasswordWebhook         string               `json:"password_webhook,omitempty"`
+	WingsConfig             string               `json:"wings_config"`
+	SteamUsername           string               `json:"steam_username,omitempty"`
+	SteamPassword           string               `json:"steam_password,omitempty"`
 }
 
 func DefaultConfig() Config {
-	return Config{Metrics: metrics.DefaultConfig(), NodeChannel: "stable", StateDir: "/var/lib/sourcenode", SharedDir: "/srv/source-shared", CacheDir: "/var/cache/sourcenode", SteamCMD: "/opt/steamcmd/steamcmd.sh", Images: []string{"ghcr.io/edgegamers/source-egg"}, Shared: true, FrameworkCache: true, FrameworkPinsEnabled: true, FrameworkRefreshMinutes: 60, FrameworkKeepDays: 30, PollSeconds: 5, CheckMinutes: 30, Restart: RestartPolicy{Mode: "empty", MaxDelayMinutes: 60, WarnSeconds: 60}, PasswordScope: "game", PasswordIntervalHours: 168}
+	c := Config{Metrics: metrics.DefaultConfig(), Operations: operations.DefaultConfig(), Observability: observability.DefaultConfig(), SelfUpdate: lifecycle.DefaultConfig(), PasswordFormat: "token", NodeChannel: "stable", StateDir: "/var/lib/sourcenode", SharedDir: "/srv/source-shared", CacheDir: "/var/cache/sourcenode", SteamCMD: "/opt/steamcmd/steamcmd.sh", Images: []string{"ghcr.io/edgegamers/source-egg"}, Shared: true, FrameworkCache: true, FrameworkPinsEnabled: true, FrameworkRefreshMinutes: 60, FrameworkKeepDays: 30, PollSeconds: 5, CheckMinutes: 30, Restart: RestartPolicy{Mode: "empty", MaxDelayMinutes: 60, WarnSeconds: 60}, PasswordScope: "game", PasswordIntervalHours: 168}
+	c.Observability.Alerts.Enabled = true
+	c.Observability.Crashes.Enabled = true
+	c.SelfUpdate.Channel = ""
+	return c
 }
 func (c Config) Validate() error {
+	for _, private := range c.PrivateDirectories() {
+		private = filepath.Clean(private)
+		if !filepath.IsAbs(private) {
+			return errors.New("private module directories must be absolute")
+		}
+		switch private {
+		case "/", "/etc", "/var", "/var/lib", "/var/cache", "/srv", "/tmp", "/usr", "/usr/local", "/home", "/root", "/opt", "/run", "/proc", "/sys", "/dev":
+			return errors.New("private modules require dedicated directories")
+		}
+		for _, public := range []string{c.SharedDir, c.CacheDir} {
+			rel, e := filepath.Rel(filepath.Clean(public), private)
+			if e == nil && (rel == "." || rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))) {
+				return errors.New("private module storage must be outside public shared/cache mounts")
+			}
+		}
+	}
+	if e := c.effectiveObservability().Validate(); e != nil {
+		return e
+	}
+	if e := c.effectiveOperations().Validate(); e != nil {
+		return e
+	}
+	if e := c.SelfUpdate.Validate(); e != nil {
+		return e
+	}
+	if e := c.passwordOptions().Validate(); e != nil {
+		return e
+	}
 	if e := c.Metrics.Validate(); e != nil {
 		return e
 	}

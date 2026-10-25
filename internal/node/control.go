@@ -26,6 +26,7 @@ func (d *Daemon) control() error {
 		return e
 	}
 	mux := http.NewServeMux()
+	d.moduleControl(mux)
 	mux.HandleFunc("POST /pin", func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("generation")
 		if err := d.pinServer(r.URL.Query().Get("server"), key); err != nil {
@@ -73,8 +74,9 @@ func (d *Daemon) control() error {
 	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
-		defer d.mu.Unlock()
-		json.NewEncoder(w).Encode(d.snapshot())
+		servers := d.snapshot()
+		d.mu.Unlock()
+		json.NewEncoder(w).Encode(map[string]any{"servers": servers, "modules": d.moduleStatus()})
 	})
 	mux.HandleFunc("GET /password", func(w http.ResponseWriter, r *http.Request) {
 		uuid := r.URL.Query().Get("server")

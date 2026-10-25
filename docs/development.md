@@ -18,6 +18,8 @@ The bootstrap tests need `jq` and util-linux (`setsid`, and `setpriv` when tests
 bash scripts/test-install-node.sh
 ```
 
+Operational package tests inject clocks, HTTP and command execution and use private temporary volumes. They do not restore a real server, prune Docker state, write apt configuration or restart host services. Full Linux race tests include observability rollover/recovery, root confinement and safe update/uninstall behavior. The EFF dictionary is embedded with attribution and pinned LF bytes.
+
 Optional external integration proofs:
 
 ```bash

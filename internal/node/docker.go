@@ -24,6 +24,8 @@ type Server struct {
 	ID, UUID, Volume, Boot string
 	PID                    int
 	Running                bool
+	ExitCode               int
+	OOMKilled              bool
 	Identity               game.Identity
 	Env                    map[string]string
 }
@@ -38,6 +40,8 @@ type dockerInspect struct {
 		Running   bool
 		Pid       int
 		StartedAt string
+		ExitCode  int
+		OOMKilled bool
 	}
 	Mounts []struct{ Destination, Source string }
 }
@@ -62,6 +66,8 @@ func serverFrom(c dockerInspect, images []string) (Server, error) {
 		return Server{}, errors.New("unmanaged image")
 	}
 	s := Server{ID: c.ID, UUID: strings.TrimPrefix(c.Name, "/"), Boot: c.State.StartedAt, PID: c.State.Pid, Running: c.State.Running, Env: map[string]string{}}
+	s.ExitCode = c.State.ExitCode
+	s.OOMKilled = c.State.OOMKilled
 	if !validID.MatchString(s.UUID) {
 		return Server{}, errors.New("invalid server UUID")
 	}

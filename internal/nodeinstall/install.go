@@ -160,7 +160,7 @@ func Install(ctx context.Context, o Options) error {
 	return nil
 }
 func validateManagedDirectories(c node.Config) error {
-	for _, dir := range []string{c.StateDir, c.SharedDir, c.CacheDir} {
+	for _, dir := range append([]string{c.SharedDir, c.CacheDir}, c.PrivateDirectories()...) {
 		clean := filepath.Clean(dir)
 		switch clean {
 		case "/", "/etc", "/var", "/var/lib", "/var/cache", "/usr", "/usr/local", "/srv", "/opt", "/home", "/root", "/tmp", "/run":

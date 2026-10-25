@@ -73,3 +73,24 @@ func TestMetricsConfigRestrictsListenerAndIntervals(t *testing.T) {
 		t.Fatal("bad listen accepted")
 	}
 }
+
+func TestPrometheusLabelsDoNotUseGoOnlyControlEscapes(t *testing.T) {
+	s := Snapshot{Servers: []Server{{ID: "srv", Game: "css", Map: "map\t\x00\x1bname"}}}
+	r := httptest.NewRecorder()
+	Handler(func() Snapshot { return s }).ServeHTTP(r, httptest.NewRequest("GET", "/metrics", nil))
+	if !strings.Contains(r.Body.String(), `map="mapname"`) || strings.Contains(r.Body.String(), `\x1b`) {
+		t.Fatal("invalid Prometheus label escapes", r.Body.String())
+	}
+}
+
+func TestNarrowTopKeepsPlayerAndCPUColumns(t *testing.T) {
+	out := Render(Snapshot{Servers: []Server{{ID: "abcdef1234", Name: "fixture", Connected: true, Players: 12, Sample: Sample{CPU: 42}}}}, "cpu", 0, 40, 10)
+	if !strings.Contains(out, "PLAYERS") || !strings.Contains(out, "42.0") || !strings.Contains(out, "12") {
+		t.Fatal(out)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		if len([]rune(line)) > 40 {
+			t.Fatal("narrow terminal line wrapped", line)
+		}
+	}
+}

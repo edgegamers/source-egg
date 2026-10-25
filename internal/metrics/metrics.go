@@ -173,7 +173,16 @@ func ReadHost(previous HostCounter) (Host, HostCounter, error) {
 	}
 	return h, next, scan.Err()
 }
-func label(s string) string { return strconv.Quote(s) }
+func label(s string) string {
+	s = strings.ToValidUTF8(s, "�")
+	s = strings.Map(func(r rune) rune {
+		if r < 32 && r != '\n' || r == 127 || r >= 128 && r <= 159 {
+			return -1
+		}
+		return r
+	}, s)
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(s) + `"`
+}
 func Handler(get func() Snapshot) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/metrics" || r.Method != "GET" {
@@ -233,9 +242,24 @@ func Render(s Snapshot, order string, offset, width, height int) string {
 		return a.ID < b.ID
 	})
 	var b strings.Builder
-	fmt.Fprintf(&b, "sourcenode %s %s | CPU %.1f%% (%d cores) MEM %.1f/%.1f GiB\n", SafeText(s.Version), SafeText(s.Channel), s.Host.CPU, s.Host.Cores, float64(s.Host.Memory)/(1<<30), float64(s.Host.Limit)/(1<<30))
-	fmt.Fprintf(&b, "servers %d | sort %s | q quit  s sort  arrows/PageUp/PageDown scroll\n", len(servers), SafeText(order))
-	fmt.Fprintln(&b, "SERVER       GAME   NAME                     MAP               PLAYERS   CPU%    MEMORY    RX/s    TX/s")
+	write := func(line string) {
+		runes := []rune(line)
+		if width > 0 && len(runes) > width {
+			runes = runes[:width]
+		}
+		fmt.Fprintln(&b, string(runes))
+	}
+	write(fmt.Sprintf("sourcenode %s %s | CPU %.1f%% (%d cores) MEM %.1f/%.1f GiB", SafeText(s.Version), SafeText(s.Channel), s.Host.CPU, s.Host.Cores, float64(s.Host.Memory)/(1<<30), float64(s.Host.Limit)/(1<<30)))
+	write(fmt.Sprintf("q quit s sort | servers %d | sort %s | arrows scroll", len(servers), SafeText(order)))
+	header := "SERVER       GAME   NAME                     MAP               PLAYERS   CPU%    MEMORY    RX/s    TX/s"
+	if width > 0 && width < 50 {
+		header = "SERVER   NAME          PLAYERS   CPU%"
+	} else if width < 80 {
+		header = "SERVER   GAME  NAME             MAP         PLAYERS   CPU%"
+	} else if width < 110 {
+		header = "SERVER   GAME  NAME                 MAP            PLAYERS   CPU%   MEMORY"
+	}
+	write(header)
 	if offset < 0 {
 		offset = 0
 	}
@@ -256,10 +280,14 @@ func Render(s Snapshot, order string, offset, width, height int) string {
 			id = id[:10]
 		}
 		line := fmt.Sprintf("%-10s %-6s %-24.24s %-17.17s %7s %6.1f %7.1fM %6.0fK %6.0fK", id, SafeText(v.Game), SafeText(v.Name), SafeText(v.Map), players, v.Sample.CPU, float64(v.Sample.Memory)/(1<<20), v.Sample.RXRate/1024, v.Sample.TXRate/1024)
-		if width > 0 && len(line) > width {
-			line = line[:width]
+		if width > 0 && width < 50 {
+			line = fmt.Sprintf("%-8.8s %-13.13s %7s %6.1f", id, SafeText(v.Name), players, v.Sample.CPU)
+		} else if width < 80 {
+			line = fmt.Sprintf("%-8.8s %-5.5s %-16.16s %-11.11s %7s %6.1f", id, SafeText(v.Game), SafeText(v.Name), SafeText(v.Map), players, v.Sample.CPU)
+		} else if width < 110 {
+			line = fmt.Sprintf("%-8.8s %-5.5s %-20.20s %-14.14s %7s %6.1f %7.1fM", id, SafeText(v.Game), SafeText(v.Name), SafeText(v.Map), players, v.Sample.CPU, float64(v.Sample.Memory)/(1<<20))
 		}
-		fmt.Fprintln(&b, line)
+		write(line)
 	}
 	return b.String()
 }

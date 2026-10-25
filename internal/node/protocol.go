@@ -28,6 +28,7 @@ type Request struct {
 	Players    int           `json:"players,omitempty"`
 	Map        string        `json:"map,omitempty"`
 	Name       string        `json:"name,omitempty"`
+	Message    string        `json:"message,omitempty"`
 	Ready      bool          `json:"ready,omitempty"`
 	Generation string        `json:"generation,omitempty"`
 	Revision   string        `json:"revision,omitempty"`
@@ -39,6 +40,7 @@ type Framework struct {
 	Archive string         `json:"archive"`
 }
 type Response struct {
+	Queued         bool                  `json:"queued,omitempty"`
 	Error          string                `json:"error,omitempty"`
 	Managed        bool                  `json:"managed"`
 	Generation     content.Generation    `json:"generation"`
