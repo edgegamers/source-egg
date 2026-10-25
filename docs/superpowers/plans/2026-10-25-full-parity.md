@@ -32,53 +32,67 @@
 Files: create `internal/operations/*.go` and tests. Read reference backup/cleanup/maintenance source and docs.
 Produces: package-local Config/DefaultConfig/Validate; Manager with backups/list/restore, cleanup/list, maintenance/status/setup, scheduling and injectable server/command/notice callbacks. Use standalone server metadata, not node imports, to avoid cycles. Report exact exported API to parent before integration.
 
-- [ ] Write failing tests for backup exclusions/custom-event preservation, low disk, safe/stopped restore, symlink/tar rejection; implement bounded atomic tar.gz archives and retention.
-- [ ] Write failing cleanup tests for age/globs, open files, symlinks, delete-parent bounds and persisted statistics; implement scheduled/manual cleanup.
-- [ ] Write failing maintenance tests for dry-run, safe command arguments, disk/reboot dedup and recovery; implement injectable commands/setup and schedule.
-- [ ] Run Linux `go test -race ./internal/operations/...`; report red/green evidence, exact APIs and limitations. Parent reviews task diff.
+- [x] Write failing tests for backup exclusions/custom-event preservation, low disk, safe/stopped restore, symlink/tar rejection; implement bounded atomic tar.gz archives and retention.
+- [x] Write failing cleanup tests for age/globs, open files, symlinks, delete-parent bounds and persisted statistics; implement scheduled/manual cleanup.
+- [x] Write failing maintenance tests for dry-run, safe command arguments, disk/reboot dedup and recovery; implement injectable commands/setup and schedule.
+- [x] Run Linux `go test -race ./internal/operations/...`; report red/green evidence, exact APIs and limitations. Parent reviews task diff.
 
 ### Task 2: Observability
 
 Files: create `internal/observability/*.go` and tests. Read reference alerts/consolelog/crashes docs/source.
 Produces: Config/DefaultConfig/Validate; Manager for events, counters, context-run aggregation, bounded async log ingestion, daily archive listing/sweep, bounded crash bundles/list/tail. Inputs are server UUID/volume/game/name/map/players/versions; no node imports. Report exact APIs.
 
-- [ ] Write failing tests for event filters/3s aggregation/429/retry/counters/identity/secret-safe output; implement nonblocking manager.
-- [ ] Write failing tests for bounded log delivery, UTC daily archives/gzip/hard365-day retention/path safety; implement archive storage and inventory.
-- [ ] Write failing tests for 500-line crash tail, nearby file/size exclusions, per-minute rate limit/retention, sanitized inspection and cancellation; implement bundle storage.
-- [ ] Run Linux `go test -race ./internal/observability/...`; report APIs/red-green evidence. Parent reviews task diff.
+- [x] Write failing tests for event filters/3s aggregation/429/retry/counters/identity/secret-safe output; implement nonblocking manager.
+- [x] Write failing tests for bounded log delivery, UTC daily archives/gzip/hard365-day retention/path safety; implement archive storage and inventory.
+- [x] Write failing tests for 500-line crash tail, nearby file/size exclusions, per-minute rate limit/retention, sanitized inspection and cancellation; implement bundle storage.
+- [x] Run Linux `go test -race ./internal/observability/...`; report APIs/red-green evidence. Parent reviews task diff.
 
 ### Task 3: Lifecycle and password compatibility
 
 Files: create `internal/lifecycle/*.go`, `internal/nodeinstall/uninstall.go` and tests; extend only `internal/passwords/*` for optional formats/schedule. Do not edit existing installer/wizard/shared node files.
 Produces: testable updater/check/install and root-scoped safe uninstall using injected host commands/paths; optional password Open options retaining existing Open API and assignments.
 
-- [ ] Write failing tests for stable/beta/exact selection, wrong/missing checksums, atomic replace, config preservation, update schedule and rollback on command failure; implement verified update/check operations.
-- [ ] Write failing tests for uninstall preserving server/shared/state data and optional config-only purge, failure reporting; implement uninstall with fixed/injected service/binary paths.
-- [ ] Write failing password tests for EFF words/calendar month rollover/end-of-month and existing assignment preservation; implement optional formats without changing default scopes or exposing secrets.
-- [ ] Run Linux race tests for lifecycle/nodeinstall/passwords; report exported APIs and red-green evidence. Parent reviews task diff.
+- [x] Write failing tests for stable/beta/exact selection, wrong/missing checksums, atomic replace, config preservation, update schedule and rollback on command failure; implement verified update/check operations.
+- [x] Write failing tests for uninstall preserving server/shared/state data and optional config-only purge, failure reporting; implement uninstall with fixed/injected service/binary paths.
+- [x] Write failing password tests for EFF words/calendar month rollover/end-of-month and existing assignment preservation; implement optional formats without changing default scopes or exposing secrets.
+- [x] Run Linux race tests for lifecycle/nodeinstall/passwords; report exported APIs and red-green evidence. Parent reviews task diff.
 
 ### Task 4: Metrics and framework policy
 
 Files: create `internal/metrics/*`; node Docker/stats integration; `internal/node/frameworks.go`; tests.
 Consumes Docker GET seam and local A2S/map state. Produces CPU delta/cache-excluded memory/network/host samples, escaped Prometheus metrics and interactive top. Fleet/server/panel framework policy and inventory remain separate from game generations.
 
-- [ ] Write failing metrics tests for CPU denominator/idle resets, cache memory subtraction, counter reset, unavailable state and malicious label escaping; implement read-only sampling/export/top.
-- [ ] Write failing policy tests for panel/server/fleet precedence, explicit unpin and persistence/missing exact release; implement privileged pins inventory/CLI.
-- [ ] Verify scoped Linux tests/race; commit independent work only once assigned agents report no concurrent staging.
+- [x] Write failing metrics tests for CPU denominator/idle resets, cache memory subtraction, counter reset, unavailable state and malicious label escaping; implement read-only sampling/export/top.
+- [x] Write failing policy tests for panel/server/fleet precedence, explicit unpin and persistence/missing exact release; implement privileged pins inventory/CLI.
+- [x] Verify scoped Linux tests/race; commit independent work only once assigned agents report no concurrent staging.
 
 ### Task 5: Daemon, broker, CLI and wizard integration
 
 Files: node config/daemon/control/protocol/docker/alerts/rollout; egg config/run/query; sourcenode CLI; wizard/install. Consume the exact package APIs produced in Tasks 1–4; record reconciled contracts in ledger before connecting.
 
-- [ ] Add default-preserving typed module configs and wizard toggles; tests cover existing JSON/headless installs and invalid listen/path/rule settings.
-- [ ] Add context-owned managers/schedulers with shutdown, status/doctor and protected control endpoints. Add unique server-prefix resolution and runtime identity rechecks for dangerous commands.
-- [ ] Add bounded redacted log/crash/version/map delivery, lifecycle/deferred/push/update/operations events and failure evidence without blocking PTY output. Keep old broker requests compatible within the version.
-- [ ] Add CLI backups/backup/restore/cleanup/maintenance/logs/crashes/crash/metrics/top/frameworks pins/self-update/check/uninstall; maintain existing game update/pin commands. Restore and uninstall are explicit operator actions; no live execution in tests.
-- [ ] Run all Linux race tests plus installer/seed fixtures and integrated end-to-end unix HTTP tests with fake Docker/Wings.
+- [x] Add default-preserving typed module configs and wizard toggles; tests cover existing JSON/headless installs and invalid listen/path/rule settings.
+- [x] Add context-owned managers/schedulers with shutdown, status/doctor and protected control endpoints. Add unique server-prefix resolution and runtime identity rechecks for dangerous commands.
+- [x] Add bounded redacted log/crash/version/map delivery, lifecycle/deferred/push/update/operations events and failure evidence without blocking PTY output. Keep old broker requests compatible within the version.
+- [x] Add CLI backups/backup/restore/cleanup/maintenance/logs/crashes/crash/metrics/top/frameworks pins/self-update/check/uninstall; maintain existing game update/pin commands. Restore and uninstall are explicit operator actions; no live execution in tests.
+- [x] Run all Linux race tests plus installer/seed fixtures and integrated end-to-end unix HTTP tests with fake Docker/Wings.
 
 ### Task 6: Docs, verification and review
 
-- [ ] Update README/node/server/development guides, complete config/commands reference and delivered parity matrix; correct stale branch/release text.
-- [ ] Verify Linux race/vet/gofmt/build/shell/fixtures, image build, profiles and read-only-root smoke; preserve explicit retail acceptance boundary.
-- [ ] Independent task/whole-branch review; fix material findings with reproductions and retain evidence in ledger.
-- [ ] Commit reviewable changes on `codex/full-feature-parity`; do not run live node provisioning, publish a release or merge without a concrete integration instruction.
+- [x] Update README/node/server/development guides, complete config/commands reference and delivered parity matrix; correct stale branch/release text.
+- [x] Verify Linux race/vet/gofmt/build/shell/fixtures, image build, profiles and read-only-root smoke; preserve explicit retail acceptance boundary.
+- [x] Independent task/whole-branch review; fix material findings with reproductions and retain evidence in ledger.
+- [x] Commit reviewable changes on `codex/full-feature-parity`; do not run live node provisioning, publish a release or merge without a concrete integration instruction.
+
+## Execution and verification
+
+Implemented on `codex/full-feature-parity` from merged main `66923fa`. Foundation `7855a84`, reviewed independent modules `2d6e7b8`, integration `7969ca8`, final review fixes `a7bd777`.
+
+Independent task reviews: lifecycle clean; operations three P2 findings and observability four Important findings fixed with reproducing regressions and scoped re-review. Final whole-branch review found five integration/resource issues; one combined fix wave reproduced and fixed all five, and scoped re-review found no material regressions.
+
+Final Linux verification passed: race tests across all packages, vet, formatting, binary builds, shell syntax and SteamCMD seed fixtures. Installer bootstrap fixtures passed. The final `source-egg:parity` image built and passed arbitrary-UID/read-only-root fixture startup; the node version command runs. Real daemon startup/shutdown and private backup/restore controls were tested using fake Docker and temporary volumes. Documentation links and egg JSON were checked.
+
+No live node provisioning, game download/client join, host cleanup, service uninstall/upgrade, live restore or release publication occurred. Live five-game/Wings acceptance remains separate from code parity.
+
+Ruling: Used the existing authorized checkout on a new feature branch instead of creating another worktree; all changes remain reviewable and reversible without altering live nodes. Continuing the user's previously selected push-and-PR workflow using ShookEagle.
+
+Deferred minor: successful already-current automatic node update checks do not refresh the `last_node_update` diagnostic timestamp; manual check/update behavior and update scheduling are unaffected.

@@ -46,6 +46,8 @@ Nightly backups cover running servers at the configured node-local hour (default
 
 Private configs, plugins and their data are included. Base VPKs, demos, Steam trees, symlinks, node/Steam credential receipts and byte-identical immutable stock files are excluded. Custom/event content and mutable configs are preserved even if their file size matches stock. `include`/`exclude` patterns are volume-relative paths or globs; `all` includes everything except protected trees and exclusions. Each archive's private metadata records the server and game identity.
 
+Traversal uses bounded directory chunks, a depth limit of 32 and an entry budget, counting excluded entries as work. Backup `max_files` bounds traversal as well as selected files; cleanup/inventory use a 100,000-entry budget. Reaching a bound fails explicitly instead of scanning indefinitely. Privileged JSON receipts must be regular files under their pinned root, without symlinks, and at most 16 MiB.
+
 Restore refuses a running server and rechecks its identity/stopped state during publication. It validates and stages archive members before overlaying individual files. Files absent from the backup remain untouched. Cancellation or I/O failure during the final overlay can leave some files restored and others unchanged; inspect the result or retry while the server stays stopped. Node credentials and game identity receipts are not restored through this mechanism.
 
 ## Cleanup and host maintenance
