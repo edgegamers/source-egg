@@ -1,0 +1,15 @@
+Source Egg
+Copyright 2026 Source Egg contributors.
+
+This project is licensed under GPL-3.0-or-later; see LICENSE.
+
+The PTY supervisor/echo helpers, Linux mount helper, and Wings client were
+adapted from s2script/s2script-cs2-egg at commit
+8857a5519ac4cb56b26716f6d57f7956f60d3a8e, itself derived from
+K4ryuu/CS2-Egg-Go. Original code copyright Kőrösfalvi "K4ryuu" Martin;
+downstream changes by S2Script contributors. SPDX headers are retained.
+
+Upstream: https://github.com/s2script/s2script-cs2-egg
+
+Source engine square icon artwork: Devicon, copyright (c) 2015 konpa,
+MIT licensed; see assets/LICENSE.devicon. Source branding belongs to Valve.

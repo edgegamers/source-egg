@@ -1,0 +1,5 @@
+/dist/
+/.superpowers/
+/.tools/
+*.test
+coverage.out

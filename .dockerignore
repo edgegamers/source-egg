@@ -1,0 +1,6 @@
+.git
+.tools
+.superpowers
+dist
+docs
+**/*_test.go

@@ -1,0 +1,108 @@
+package passwords
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"os"
+	"regexp"
+	"sync"
+	"time"
+
+	"github.com/edgegamers/source-egg/internal/fsx"
+	"github.com/edgegamers/source-egg/internal/game"
+)
+
+type Assignment struct {
+	Password    string    `json:"password"`
+	Revision    string    `json:"revision"`
+	GeneratedAt time.Time `json:"generated_at"`
+	NextAt      time.Time `json:"next_at"`
+}
+type Store struct {
+	mu       sync.Mutex
+	dir      string
+	interval time.Duration
+	records  map[string]Assignment
+}
+
+var serverKey = regexp.MustCompile(`^[A-Za-z0-9_-]{1,80}$`)
+
+func Key(scope, server, title string) (string, error) {
+	if !serverKey.MatchString(server) {
+		return "", errors.New("invalid server identity")
+	}
+	if _, e := game.Lookup(title); e != nil {
+		return "", e
+	}
+	switch scope {
+	case "game":
+		return "game:" + title, nil
+	case "server":
+		return "server:" + server, nil
+	case "node":
+		return "node", nil
+	}
+	return "", errors.New("password scope must be game, server, or node")
+}
+func Open(dir string, interval time.Duration) (*Store, error) {
+	if interval < 0 {
+		return nil, errors.New("negative password interval")
+	}
+	if e := os.MkdirAll(dir, 0700); e != nil {
+		return nil, e
+	}
+	if e := os.Chmod(dir, 0700); e != nil {
+		return nil, e
+	}
+	s := &Store{dir: dir, interval: interval, records: map[string]Assignment{}}
+	r, e := os.OpenRoot(dir)
+	if e != nil {
+		return nil, e
+	}
+	defer r.Close()
+	e = fsx.ReadJSON(r, "state.json", &s.records)
+	if e != nil && !os.IsNotExist(e) {
+		return nil, e
+	}
+	if s.records == nil {
+		return nil, errors.New("invalid password state")
+	}
+	return s, nil
+}
+func (s *Store) Get(scope, server, title string, now time.Time) (Assignment, error) {
+	key, e := Key(scope, server, title)
+	if e != nil {
+		return Assignment{}, e
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.records[key]
+	if ok && (a.NextAt.IsZero() || now.Before(a.NextAt)) {
+		return a, nil
+	}
+	var raw [18]byte
+	if _, e = rand.Read(raw[:]); e != nil {
+		return Assignment{}, e
+	}
+	next := Assignment{Password: base64.RawURLEncoding.EncodeToString(raw[:]), Revision: fsx.Token(), GeneratedAt: now.UTC()}
+	if s.interval > 0 {
+		next.NextAt = now.Add(s.interval).UTC()
+	}
+	// Publish to memory only after durable state replacement succeeds.
+	records := make(map[string]Assignment, len(s.records)+1)
+	for k, v := range s.records {
+		records[k] = v
+	}
+	records[key] = next
+	root, e := os.OpenRoot(s.dir)
+	if e != nil {
+		return Assignment{}, e
+	}
+	defer root.Close()
+	if e = fsx.JSON(root, "state.json", records, 0600); e != nil {
+		return Assignment{}, e
+	}
+	s.records = records
+	return next, nil
+}

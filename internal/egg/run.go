@@ -1,0 +1,142 @@
+package egg
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/edgegamers/source-egg/internal/fsx"
+	"github.com/edgegamers/source-egg/internal/node"
+	"github.com/edgegamers/source-egg/internal/supervisor"
+)
+
+// Run forwards the panel console through a PTY and stops srcds gracefully.
+func (e *Egg) Run(ctx context.Context) error {
+	prepared, err := e.Prepare(ctx)
+	if err != nil {
+		return err
+	}
+	c := e.Config
+	if err = os.MkdirAll(filepath.Join(c.Dir, ".source/logs"), 0700); err != nil {
+		return err
+	}
+	logfile, err := OpenLog(filepath.Join(c.Dir, ".source/logs"), 32<<20, 3)
+	if err != nil {
+		return err
+	}
+	defer logfile.Close()
+	var output sync.Mutex
+	var tail []string
+	secrets := []string{prepared.Password, c.RCON, c.GSLT, c.SteamPassword}
+	line := func(s string) {
+		output.Lock()
+		defer output.Unlock()
+		masked := Mask(s, secrets)
+		fmt.Fprintln(io.MultiWriter(os.Stdout, logfile), masked)
+		if len(masked) > 512 {
+			masked = masked[:512]
+		}
+		tail = append(tail, masked)
+		if len(tail) > 64 {
+			tail = tail[len(tail)-64:]
+		}
+	}
+	cmd := exec.Command(prepared.Args[0], prepared.Args[1:]...)
+	cmd.Dir = c.Dir
+	server := &supervisor.Server{Cmd: cmd, Stdin: os.Stdin, Line: line, StopCommand: "quit", Grace: 30 * time.Second, Idle: 15 * time.Second}
+	runctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var workers sync.WaitGroup
+	workers.Go(func() { e.watch(runctx, server, prepared, line) })
+	line("SourceEgg | Starting " + prepared.Profile.Name)
+	err = server.Run(runctx)
+	cancel()
+	workers.Wait()
+	if err != nil && !server.Stopping() && e.Node != nil {
+		reportCtx, done := context.WithTimeout(context.Background(), 5*time.Second)
+		code := -1
+		if exit, ok := err.(*exec.ExitError); ok {
+			code = exit.ExitCode()
+		}
+		output.Lock()
+		console := append([]string(nil), tail...)
+		output.Unlock()
+		_, _ = e.call(reportCtx, node.Request{Action: "crash", Identity: prepared.Identity, ExitCode: code, Console: console})
+		done()
+	}
+	if server.Stopping() {
+		return nil
+	}
+	return err
+}
+func (e *Egg) watch(ctx context.Context, server *supervisor.Server, p Prepared, line func(string)) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	revision := ""
+	if p.Assignment != nil {
+		revision = p.Assignment.Revision
+	}
+	checksSent := false
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			players := -1
+			queryCtx, queryCancel := context.WithTimeout(ctx, 2*time.Second)
+			count, err := QueryPlayers(queryCtx, fmt.Sprintf("127.0.0.1:%d", e.Config.Port))
+			queryCancel()
+			ready := err == nil
+			if ready {
+				players = count
+				if !checksSent {
+					_ = server.Send("meta version")
+					if e.Config.InstallSourceMod {
+						_ = server.Send("sm version")
+					}
+					checksSent = true
+					line("SourceEgg | Ready")
+				}
+			}
+			if e.Node == nil {
+				continue
+			}
+			requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			res, err := e.call(requestCtx, node.Request{Action: "state", Identity: p.Identity, Players: players, Ready: ready, Generation: p.Generation})
+			cancel()
+			if err == nil && res.RestartSeconds > 0 {
+				_ = server.Send(fmt.Sprintf("say Server update restart in approximately %d seconds", res.RestartSeconds))
+			}
+			if !e.Config.GeneratePassword {
+				continue
+			}
+			requestCtx, cancel = context.WithTimeout(ctx, 20*time.Second)
+			res, err = e.call(requestCtx, node.Request{Action: "password", Identity: p.Identity})
+			cancel()
+			if err != nil || res.Password == nil || res.Password.Revision == revision {
+				continue
+			}
+			// Cache before requesting a restart. Do not print the assigned credential.
+			root, err := os.OpenRoot(e.Config.Dir)
+			if err != nil {
+				continue
+			}
+			err = fsx.JSON(root, ".source/password.json", res.Password, 0600)
+			root.Close()
+			if err != nil {
+				continue
+			}
+			requestCtx, cancel = context.WithTimeout(ctx, 20*time.Second)
+			_, err = e.call(requestCtx, node.Request{Action: "password-restart", Identity: p.Identity, Revision: res.Password.Revision})
+			cancel()
+			if err == nil {
+				revision = res.Password.Revision
+			}
+		}
+	}
+}
