@@ -53,7 +53,8 @@ type Daemon struct {
 	frameworkSeen    map[string]map[string]string
 	lastNodeUpdate   map[string]any
 	startedAt        time.Time
-	metricsMu        sync.Mutex
+	metricsMu        sync.RWMutex // Only snapshot publication and reads.
+	metricsSampleMu  sync.Mutex   // Serializes sampling, prior counters and deltas.
 	metricsPrevious  map[string]metrics.DockerStats
 	metricSnapshot   metrics.Snapshot
 	metricAt         time.Time

@@ -515,6 +515,21 @@ func TestRestoreBoundsDirectoryMembersAndTrailingData(t *testing.T) {
 	}
 }
 
+func TestBackupEntryBoundCountsExcludedFiles(t *testing.T) {
+	m, s, _, _, _ := fixture(t)
+	m.cfg.Backup.MaxFiles = 1
+	for i := 0; i < 300; i++ {
+		put(t, s.Volume, fmt.Sprintf("excluded-%03d.dem", i), "demo")
+	}
+	if _, e := m.Backup(context.Background(), s); e == nil {
+		t.Fatal("excluded entries bypassed backup max_files")
+	}
+	records, e := m.Backups(context.Background(), s.ID)
+	if e != nil || len(records) != 0 {
+		t.Fatalf("partial backup published: %v %v", records, e)
+	}
+}
+
 func TestOnStartDebounceAndDisabledSchedules(t *testing.T) {
 	_, s, c, o, base := fixture(t)
 	c.Cleanup.Enabled = true

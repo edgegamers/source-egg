@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/edgegamers/source-egg/internal/nodeinstall"
 )
 
 func TestOperatorCommandRoutesRetainExplicitRestoreIntent(t *testing.T) {
@@ -22,6 +26,36 @@ func TestOperatorCommandRoutesRetainExplicitRestoreIntent(t *testing.T) {
 	}
 	if _, _, _, handled, _ := operatorRoute([]string{"update", "css"}); handled {
 		t.Fatal("game update command overridden")
+	}
+}
+
+func TestUninstallCLIProvidesInstalledFilePaths(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("CLI requires root")
+	}
+	exe, e := os.Executable()
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, purge := range []bool{false, true} {
+		args := []string{"--yes"}
+		if purge {
+			args = append(args, "--purge")
+		}
+		called := false
+		e := uninstallCLIWith(context.Background(), "/etc/sourcenode/config.json", args, func(_ context.Context, o nodeinstall.UninstallOptions) error {
+			called = true
+			if o.BinaryPath != exe || o.UnitPath != "/etc/systemd/system/sourcenode.service" || o.ConfigPath != "/etc/sourcenode/config.json" || o.Purge != purge {
+				t.Fatalf("incomplete uninstall contract: %+v", o)
+			}
+			return nil
+		})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if !called {
+			t.Fatal("uninstall not called")
+		}
 	}
 }
 func TestOperatorConfirmationRequiresYes(t *testing.T) {

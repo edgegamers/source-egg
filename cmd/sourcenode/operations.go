@@ -275,6 +275,9 @@ func selfUpdateCLI(ctx context.Context, c node.Config, args []string) error {
 	return nil
 }
 func uninstallCLI(ctx context.Context, configPath string, args []string) error {
+	return uninstallCLIWith(ctx, configPath, args, nodeinstall.Uninstall)
+}
+func uninstallCLIWith(ctx context.Context, configPath string, args []string, uninstall func(context.Context, nodeinstall.UninstallOptions) error) error {
 	if os.Geteuid() != 0 {
 		return errors.New("node removal requires root")
 	}
@@ -290,7 +293,11 @@ func uninstallCLI(ctx context.Context, configPath string, args []string) error {
 	if e := confirm(os.Stdin, os.Stdout, "Remove the node service/binary while preserving shared files, server volumes and private state", *yes); e != nil {
 		return e
 	}
-	if e := nodeinstall.Uninstall(ctx, nodeinstall.UninstallOptions{ConfigPath: configPath, Purge: *purge}); e != nil {
+	exe, e := os.Executable()
+	if e != nil {
+		return e
+	}
+	if e := uninstall(ctx, nodeinstall.UninstallOptions{BinaryPath: exe, UnitPath: "/etc/systemd/system/sourcenode.service", ConfigPath: configPath, Purge: *purge}); e != nil {
 		return e
 	}
 	fmt.Println("Node removed. Shared files, server volumes, backups and private state retained.")

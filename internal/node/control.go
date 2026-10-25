@@ -138,7 +138,7 @@ func (d *Daemon) control() error {
 		}
 		io.WriteString(w, "pruned unreferenced game generations\n")
 	})
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	d.mu.Lock()
 	d.listeners["control"] = l
 	d.mu.Unlock()
@@ -147,6 +147,7 @@ func (d *Daemon) control() error {
 }
 func Control(ctx context.Context, c Config, method, path string) ([]byte, error) {
 	client := SocketClient(filepath.Join(c.StateDir, "control.sock"))
+	defer client.CloseIdleConnections()
 	req, e := http.NewRequestWithContext(ctx, method, "http://sourcenode"+path, nil)
 	if e != nil {
 		return nil, e

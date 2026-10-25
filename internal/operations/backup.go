@@ -117,7 +117,8 @@ func (m *Manager) candidates(ctx context.Context, root *os.Root, s Server) ([]ca
 	}
 	var files []candidate
 	var total int64
-	e := fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, e error) error {
+	budget := m.cfg.Backup.MaxFiles
+	e := fsx.BoundedWalk(ctx, root, ".", &budget, func(rel string, d fs.DirEntry, e error) error {
 		if e != nil {
 			return e
 		}
@@ -319,7 +320,8 @@ func (m *Manager) list(ctx context.Context, root *os.Root, id string) ([]BackupR
 			return records, nil
 		}
 	}
-	e := fs.WalkDir(root.FS(), start, func(p string, d fs.DirEntry, e error) error {
+	budget := 100000
+	e := fsx.BoundedWalk(ctx, root, start, &budget, func(p string, d fs.DirEntry, e error) error {
 		if e != nil {
 			return e
 		}

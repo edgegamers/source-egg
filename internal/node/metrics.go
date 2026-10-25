@@ -25,8 +25,8 @@ func (d *Docker) Stats(ctx context.Context, id string) (metrics.DockerStats, err
 	return out, e
 }
 func (d *Daemon) sampleMetrics(ctx context.Context) metrics.Snapshot {
-	d.metricsMu.Lock()
-	defer d.metricsMu.Unlock()
+	d.metricsSampleMu.Lock()
+	defer d.metricsSampleMu.Unlock()
 	now := time.Now()
 	if d.metricsPrevious == nil {
 		d.metricsPrevious = map[string]metrics.DockerStats{}
@@ -75,12 +75,14 @@ func (d *Daemon) sampleMetrics(ctx context.Context) metrics.Snapshot {
 	}
 	d.metricsPrevious = next
 	d.metricAt = now
+	d.metricsMu.Lock()
 	d.metricSnapshot = snapshot
+	d.metricsMu.Unlock()
 	return snapshot
 }
 func (d *Daemon) metricsSnapshot() metrics.Snapshot {
-	d.metricsMu.Lock()
-	defer d.metricsMu.Unlock()
+	d.metricsMu.RLock()
+	defer d.metricsMu.RUnlock()
 	return d.metricSnapshot
 }
 func (d *Daemon) runMetrics(ctx context.Context) {

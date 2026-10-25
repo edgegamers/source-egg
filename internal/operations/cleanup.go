@@ -7,6 +7,8 @@ import (
 	"os"
 	"path"
 	"time"
+
+	"github.com/edgegamers/source-egg/internal/fsx"
 )
 
 func (m *Manager) Cleanup(ctx context.Context, s Server) (CleanupResult, error) {
@@ -32,6 +34,7 @@ func (m *Manager) Cleanup(ctx context.Context, s Server) (CleanupResult, error) 
 		}
 	}
 	removed := map[string]bool{}
+	budget := 100000
 	for _, rule := range m.cfg.Cleanup.Rules {
 		if rule.Enabled != nil && !*rule.Enabled {
 			continue
@@ -55,7 +58,7 @@ func (m *Manager) Cleanup(ctx context.Context, s Server) (CleanupResult, error) 
 			if !info.IsDir() {
 				continue
 			}
-			e = fs.WalkDir(root.FS(), dir, func(name string, d fs.DirEntry, e error) error {
+			e = fsx.BoundedWalk(ctx, root, dir, &budget, func(name string, d fs.DirEntry, e error) error {
 				if errors.Is(e, os.ErrNotExist) {
 					return nil
 				}
@@ -98,19 +101,24 @@ func (m *Manager) Cleanup(ctx context.Context, s Server) (CleanupResult, error) 
 				parent := path.Dir(name)
 				removeParent := false
 				if rule.DeleteParentDir && parent != dir && parent != "." {
-					entries, e := fs.ReadDir(root.FS(), parent)
-					if e != nil {
-						return e
-					}
 					safe := true
 					var bundle []string
-					for _, d := range entries {
-						p := path.Join(parent, d.Name())
+					e := fsx.BoundedWalk(ctx, root, parent, &budget, func(p string, d fs.DirEntry, e error) error {
+						if e != nil {
+							return e
+						}
+						if p == parent {
+							return nil
+						}
 						if d.IsDir() || !d.Type().IsRegular() || held[p] || protected(p) {
 							safe = false
-							break
+							return fs.SkipAll
 						}
 						bundle = append(bundle, p)
+						return nil
+					})
+					if e != nil {
+						return e
 					}
 					if safe {
 						targets = bundle
@@ -154,6 +162,9 @@ func (m *Manager) Cleanup(ctx context.Context, s Server) (CleanupResult, error) 
 			})
 			if e != nil {
 				r.Errors = append(r.Errors, e.Error())
+				if errors.Is(e, fsx.ErrWalkLimit) || ctx.Err() != nil {
+					break
+				}
 			}
 		}
 	}
