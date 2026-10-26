@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edgegamers/source-egg/internal/fsx"
+	"github.com/edgegamers/source-egg/internal/observability"
 	"github.com/edgegamers/source-egg/internal/passwords"
 )
 
@@ -52,7 +53,17 @@ func post(ctx context.Context, hook string, fields any) error {
 	return errors.New("webhook rate limit")
 }
 func (d *Daemon) notice(ctx context.Context, event string, s Server, fields map[string]any) {
-	_ = post(ctx, d.Config.Webhook, map[string]any{"event": event, "server": s.UUID, "game": s.Identity.Game, "fields": fields})
+	if d.Observation == nil {
+		return
+	}
+	if event == "server.crash" {
+		event = "crash"
+	}
+	clean := stringifyFields(fields)
+	for key, value := range clean {
+		clean[key] = redactServer(s, value)
+	}
+	d.Observation.Notify(observability.Notice{Kind: event, Server: d.observationServer(s), Fields: clean})
 }
 func (d *Daemon) deliverPassword(ctx context.Context, s Server, scope string, a passwords.Assignment) {
 	d.notify.Lock()

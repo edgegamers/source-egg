@@ -179,5 +179,5 @@ func Configure(c node.Config, input io.Reader, output io.Writer) (node.Config, e
 	if c.PasswordWebhook, err = w.hook("Private Discord password webhook (optional)", c.PasswordWebhook); err != nil {
 		return c, err
 	}
-	return c, c.Validate()
+	return configureOperations(c, w)
 }

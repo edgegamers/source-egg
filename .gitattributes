@@ -4,3 +4,4 @@
 *.yml text eol=lf
 *.json text eol=lf
 Dockerfile text eol=lf
+internal/passwords/eff_large_wordlist.txt text eol=lf

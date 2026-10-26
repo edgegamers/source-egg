@@ -221,6 +221,16 @@
             "user_editable": false,
             "rules": "nullable|string|max:128",
             "field_type": "text"
+        },
+        {
+            "name": "Console Log Persistence",
+            "description": "Forward redacted console lines to node daily archives when node log archiving is enabled. Server-local rotating logs remain available.",
+            "env_variable": "ENABLE_LOG_FILES",
+            "default_value": "1",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
         }
     ]
 }

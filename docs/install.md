@@ -86,7 +86,7 @@ sudo sourcenode prune
 
 Pruning protects current/applied/pending/pinned builds. Removed-server references are retained conservatively; orphan-reference cleanup is not automated. Automatic canary/health rollback is not implemented; use inspected generations and manual rollback.
 
-Framework downloads are cached centrally and applied at startup. Missing exact framework pins fail. Old archives remain available; automatic archive retention and proactive framework-only restart scheduling are not implemented yet.
+Framework downloads are cached centrally and applied at startup. Missing exact framework pins fail. Node fleet/server pins and inventory are available through `pins`, `pin metamod VERSION [SERVER]` and equivalent SourceMod commands. Configured archive retention protects installed/pinned versions; unknown legacy archives remain conservative until requested again. Proactive framework-only restart scheduling is outside the reference-parity scope.
 
 ## Passwords
 
@@ -112,8 +112,10 @@ Disabling generation makes `SERVER_PASSWORD` authoritative; an empty manual valu
 
 ## Diagnostics and remaining work
 
-`status` shows game/running state, reported readiness/players, generation references and pending restarts. `doctor` checks Docker access, SteamCMD path and Wings config; it does not certify retail-game compatibility.
+`status` shows game/running state, reported readiness/players, generation references, pending restarts, module counters and schedules. `doctor` checks Docker, SteamCMD, Wings, disk/reboot state, mounted paths, webhook availability and recent crashes; it does not certify retail-game compatibility.
 
-Console logs are `.source/logs/console.log`, rotating at 32 MiB with three older files. Unexpected exits send a bounded redacted console tail and exit code to node-private crash JSON files; local logs remain available without a node.
+Local console logs remain `.source/logs/console.log`, rotating at 32 MiB with three older files. Optional node archives add daily gzip/retention; server `ENABLE_LOG_FILES=1` enables forwarding. Unexpected exits queue private crash bundles with a 500-line tail, map/players, framework versions and nearby evidence. Bounded queues protect console throughput.
 
-Real game startup, client authentication/joins, map changes, framework loading and live panel/Wings acceptance remain release gates for all five games. A2S readiness is not proof of third-party plugin health. Scheduled backups, resource metrics, automatic canaries/health rollback, node self-updates and broad maintenance are not implemented in this core phase. Workshop/map caching and the connection guard are excluded.
+Backups/restore, resource metrics/Prometheus/top, scheduled cleanup, optional host maintenance, verified node updates and uninstall are documented in [Node operations](operations.md). Password word phrases/calendar rotation are optional; existing token/hour behavior remains the default. See the [complete configuration](reference/node-config.md).
+
+Real game startup, client authentication/joins, map changes, framework loading and live panel/Wings acceptance remain release gates for all five games. A2S readiness is not proof of third-party plugin health. Automatic canaries/health rollback remain beyond reference parity. Workshop/map caching and the connection guard are excluded.

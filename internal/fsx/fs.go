@@ -86,9 +86,25 @@ func Copy(root *os.Root, name, source string, mode fs.FileMode) error {
 	return root.Rename(tmp, name)
 }
 func ReadJSON(root *os.Root, name string, v any) error {
-	b, e := root.ReadFile(name)
+	f, e := openReceipt(root, name)
 	if e != nil {
 		return e
+	}
+	defer f.Close()
+	const maxJSONBytes = 16 << 20
+	st, e := f.Stat()
+	if e != nil {
+		return e
+	}
+	if !st.Mode().IsRegular() || st.Size() > maxJSONBytes {
+		return errors.New("JSON receipt must be a regular file of at most 16 MiB")
+	}
+	b, e := io.ReadAll(io.LimitReader(f, maxJSONBytes+1))
+	if e != nil {
+		return e
+	}
+	if len(b) > maxJSONBytes {
+		return errors.New("JSON receipt exceeds 16 MiB")
 	}
 	return json.Unmarshal(b, v)
 }

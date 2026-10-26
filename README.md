@@ -2,7 +2,7 @@
 
 A Source engine egg for Pelican and Pterodactyl, using the same container/node setup pattern as [S2Script CS2 Egg](https://github.com/s2script/s2script-cs2-egg). Choose **CS:GO, CS:S, DOD:S, L4D2, or TF2** from one game dropdown.
 
-Included: latest stable Metamod:Source, latest SourceMod prerelease, optional shared base-game VPKs, a central Metamod/SourceMod cache, game-specific update/restart policies, Discord webhooks, join-password scopes, console logs and crash reports. Workshop/map caching and the CS2 connection guard are excluded.
+Included: latest stable Metamod:Source, latest SourceMod prerelease, shared base-game VPKs, central framework caching/pins, game-specific updates/restarts, Discord events, password scopes, node console archives and crash bundles. Optional node modules provide backups/restore, cleanup, resource metrics/Prometheus/top, host maintenance and verified node self-updates. Workshop/map caching and the CS2 connection guard are excluded.
 
 Release versions come from the GitHub release tag. The bootstrap selects a published stable release and the egg defaults to `:stable`; use `:beta` for testing releases. **Wait for the release workflow to publish the node assets and image before installing.** This is an initial implementation; [live-game acceptance and remaining features](docs/IMPLEMENTATION.md) are tracked separately.
 
@@ -14,7 +14,7 @@ For shared game files, do this **before creating servers**. Run on the Wings nod
 curl -fsSL https://raw.githubusercontent.com/edgegamers/source-egg/main/scripts/install-node.sh | bash
 ```
 
-The bootstrap verifies the release checksum, installs missing host SteamCMD runtime libraries on Debian/Ubuntu, and opens the **Source node setup wizard** with sudo. Enable **base-game VPK sharing** and **Metamod/SourceMod caching**, choose which games to prepare now, then set restart/password policies and optional Discord webhooks. No Go or Python is needed on the node.
+The bootstrap verifies the release checksum, installs missing host SteamCMD runtime libraries on Debian/Ubuntu, and opens the **Source node setup wizard** with sudo. Choose VPK sharing, framework caching and game predownloads, then restart/password/webhook policies and optional operations modules. No Go or Python is needed on the node. Host maintenance starts in dry-run mode.
 
 Use an interactive SSH terminal on Linux x86-64 with Docker/Wings, sudo access, kernel 5.12+, and enough disk for the selected games plus update staging. Debian 12+ or Ubuntu 22.04+ is recommended. The node can be installed with **zero servers**: choose games to predownload, or `none` to download each game when its first server starts.
 
@@ -78,6 +78,8 @@ Ordinary webhooks exclude passwords. Optional password delivery uses a separatel
 For a dev node sharing one public address, use Docker bridge networking with separate allocated ports. Keep an existing working Wings network configuration.
 
 [Node guide](docs/node.md) · [Server/operations guide](docs/install.md) · [Build and test from source](docs/development.md) · [Implementation status](docs/IMPLEMENTATION.md)
+
+[Node operations and full CLI](docs/operations.md) · [Complete configuration reference](docs/reference/node-config.md). Operational parity changes require a release containing this implementation; existing released binaries retain their original feature set. Live five-game acceptance remains a separate release gate.
 
 GPL-3.0-or-later. Runtime helpers retain attribution to K4ryuu/CS2-Egg-Go and S2Script contributors; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 

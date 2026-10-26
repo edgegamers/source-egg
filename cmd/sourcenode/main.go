@@ -66,20 +66,33 @@ func run() error {
 		defer stop()
 		return nodeinstall.Install(ctx, nodeinstall.Options{ConfigPath: *path, Yes: *yes, Channel: *channel, Input: os.Stdin, Output: os.Stdout})
 	}
+	if args[0] == "uninstall" {
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		return uninstallCLI(ctx, *path, args[1:])
+	}
 	config, e := node.LoadConfig(*path)
 	if e != nil {
 		return e
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	if handled, err := extendedCLI(ctx, config, args); handled {
+		return err
+	}
 	switch args[0] {
 	case "serve":
 		d, e := node.New(config)
 		if e != nil {
 			return e
 		}
+		d.Version = version
 		return d.Run(ctx)
 	case "doctor":
+		if data, err := node.Control(ctx, config, "GET", "/doctor"); err == nil {
+			printJSON(data)
+			return nil
+		}
 		if _, e := os.Stat(config.SteamCMD); e != nil {
 			return e
 		}

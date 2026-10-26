@@ -18,6 +18,7 @@ import (
 )
 
 type Cache struct {
+	Refresh  time.Duration
 	Dir      string
 	HTTP     *http.Client
 	Resolver Resolver
@@ -55,7 +56,11 @@ func (c *Cache) Resolve(ctx context.Context, name, pin string) (Package, error) 
 	path := "metadata/" + hex.EncodeToString(sum[:]) + ".json"
 	var old metadata
 	have := fsx.ReadJSON(root, path, &old) == nil
-	if have && time.Since(old.At) < time.Hour {
+	refresh := c.Refresh
+	if refresh <= 0 {
+		refresh = time.Hour
+	}
+	if have && time.Since(old.At) < refresh {
 		return old.Package, nil
 	}
 	pkg, e := c.Resolver.Resolve(ctx, name, pin)
@@ -89,6 +94,13 @@ func (c *Cache) Fetch(ctx context.Context, p Package) (string, error) {
 	checksum := dest + ".sha256"
 	if sum, e := os.ReadFile(checksum); e == nil {
 		if actual, e := digest(dest); e == nil && actual == strings.TrimSpace(string(sum)) && (p.Digest == "" || p.Digest == "sha256:"+actual) {
+			if e = c.recordPackage(dir, p); e != nil {
+				return "", e
+			}
+			now := time.Now()
+			if e = os.Chtimes(dest, now, now); e != nil {
+				return "", e
+			}
 			return dest, nil
 		}
 	}
@@ -140,6 +152,9 @@ func (c *Cache) Fetch(ctx context.Context, p Package) (string, error) {
 		return "", e
 	}
 	if e = os.WriteFile(checksum, []byte(sum), 0644); e != nil {
+		return "", e
+	}
+	if e = c.recordPackage(dir, p); e != nil {
 		return "", e
 	}
 	return dest, nil

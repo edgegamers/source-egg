@@ -26,6 +26,7 @@ func (d *Daemon) control() error {
 		return e
 	}
 	mux := http.NewServeMux()
+	d.moduleControl(mux)
 	mux.HandleFunc("POST /pin", func(w http.ResponseWriter, r *http.Request) {
 		key := r.URL.Query().Get("generation")
 		if err := d.pinServer(r.URL.Query().Get("server"), key); err != nil {
@@ -73,8 +74,9 @@ func (d *Daemon) control() error {
 	})
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, r *http.Request) {
 		d.mu.Lock()
-		defer d.mu.Unlock()
-		json.NewEncoder(w).Encode(d.snapshot())
+		servers := d.snapshot()
+		d.mu.Unlock()
+		json.NewEncoder(w).Encode(map[string]any{"servers": servers, "modules": d.moduleStatus()})
 	})
 	mux.HandleFunc("GET /password", func(w http.ResponseWriter, r *http.Request) {
 		uuid := r.URL.Query().Get("server")
@@ -136,7 +138,7 @@ func (d *Daemon) control() error {
 		}
 		io.WriteString(w, "pruned unreferenced game generations\n")
 	})
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
 	d.mu.Lock()
 	d.listeners["control"] = l
 	d.mu.Unlock()
@@ -145,6 +147,7 @@ func (d *Daemon) control() error {
 }
 func Control(ctx context.Context, c Config, method, path string) ([]byte, error) {
 	client := SocketClient(filepath.Join(c.StateDir, "control.sock"))
+	defer client.CloseIdleConnections()
 	req, e := http.NewRequestWithContext(ctx, method, "http://sourcenode"+path, nil)
 	if e != nil {
 		return nil, e

@@ -70,7 +70,9 @@ Keep the default discovery repository `ghcr.io/edgegamers/source-egg` unless usi
 
 ## Updates and local builds
 
-To upgrade the node binary, rerun the verified bootstrap; existing settings become wizard defaults. Repeat the beta command to select beta, or use an exact tag for a controlled upgrade. The selected channel is recorded in config; automatic node self-updates are not implemented. `sudo sourcenode update css` updates **game files**, not the node binary.
+Upgrade the node with `sudo sourcenode self-update`, or rerun the verified bootstrap. `self-update --check` checks without installing; `--channel stable|beta` and `--release TAG` override selection. Scheduled self-updates are optional in the wizard/config. `sudo sourcenode update` also updates the node; `sudo sourcenode update css` updates CS:S game files. Existing settings survive upgrades.
+
+The wizard also offers backups, server cleanup, node console archives/crash bundles, resource metrics and host maintenance. These operations use the [full command guide](operations.md) and [configuration reference](reference/node-config.md). Maintenance starts disabled/dry-run. `sudo sourcenode uninstall --yes` removes the service/binary while retaining game/shared/private data; `--purge` additionally removes only the config file.
 
 Setup reuses an existing SteamCMD installation. If that installation is damaged or incomplete, repair it before rerunning; the installer does not yet diagnose every existing-client corruption case. Managed directories must use real dedicated paths, and private node state must stay outside shared/cache roots.
 

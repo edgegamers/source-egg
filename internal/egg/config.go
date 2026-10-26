@@ -11,6 +11,7 @@ type Config struct {
 	Dir, Game, Branch, Mode, Map, Hostname, Password, RCON, GSLT, SteamCMD, SteamUsername, SteamPassword, MetamodVersion, SourceModVersion string
 	Port, MaxPlayers, NodeWaitSeconds                                                                                                      int
 	InstallMetamod, InstallSourceMod, GeneratePassword, UpdateGame, Validate                                                               bool
+	PersistLogs                                                                                                                            bool
 }
 
 func FromEnv(get func(string) string) (Config, error) {
@@ -22,6 +23,7 @@ func FromEnv(get func(string) string) (Config, error) {
 	if c.Mode == "" {
 		c.Mode = "auto"
 	}
+	c.PersistLogs = get("ENABLE_LOG_FILES") != "0"
 	if value := get("NODE_WAIT_SECONDS"); value != "" {
 		c.NodeWaitSeconds, e = strconv.Atoi(value)
 		if e != nil || c.NodeWaitSeconds < 0 || c.NodeWaitSeconds > 300 {

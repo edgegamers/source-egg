@@ -17,12 +17,8 @@ import (
 
 // Run forwards the panel console through a PTY and stops srcds gracefully.
 func (e *Egg) Run(ctx context.Context) error {
-	prepared, err := e.Prepare(ctx)
-	if err != nil {
-		return err
-	}
 	c := e.Config
-	if err = os.MkdirAll(filepath.Join(c.Dir, ".source/logs"), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(c.Dir, ".source/logs"), 0700); err != nil {
 		return err
 	}
 	logfile, err := OpenLog(filepath.Join(c.Dir, ".source/logs"), 32<<20, 3)
@@ -32,18 +28,45 @@ func (e *Egg) Run(ctx context.Context) error {
 	defer logfile.Close()
 	var output sync.Mutex
 	var tail []string
-	secrets := []string{prepared.Password, c.RCON, c.GSLT, c.SteamPassword}
+	var delivery *consoleDelivery
+	secrets := []string{c.Password, c.RCON, c.GSLT, c.SteamPassword}
 	line := func(s string) {
 		output.Lock()
 		defer output.Unlock()
 		masked := Mask(s, secrets)
 		fmt.Fprintln(io.MultiWriter(os.Stdout, logfile), masked)
+		if delivery != nil {
+			delivery.offer(masked)
+		}
 		if len(masked) > 512 {
 			masked = masked[:512]
 		}
 		tail = append(tail, masked)
-		if len(tail) > 64 {
-			tail = tail[len(tail)-64:]
+		if len(tail) > 500 {
+			tail = tail[len(tail)-500:]
+		}
+	}
+	previousProgress := e.Progress
+	e.Progress = consoleWriter{line: line}
+	defer func() { e.Progress = previousProgress }()
+	prepared, err := e.Prepare(ctx)
+	if err != nil {
+		if ctx.Err() == nil && e.Node != nil && prepared.Identity.Validate() == nil {
+			message := Mask(err.Error(), secrets)
+			if len(message) > 512 {
+				message = message[:512]
+			}
+			reportCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			_, _ = e.call(reportCtx, node.Request{Action: "boot-failed", Identity: prepared.Identity, Message: message})
+			cancel()
+		}
+		return err
+	}
+	secrets = append(secrets, prepared.Password)
+	if c.PersistLogs && e.Node != nil {
+		delivery = newConsoleDelivery(e, prepared.Identity, line)
+		for _, old := range tail {
+			delivery.offer(old)
 		}
 	}
 	cmd := exec.Command(prepared.Args[0], prepared.Args[1:]...)
@@ -52,6 +75,9 @@ func (e *Egg) Run(ctx context.Context) error {
 	runctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var workers sync.WaitGroup
+	if delivery != nil {
+		workers.Go(func() { delivery.run(runctx) })
+	}
 	workers.Go(func() { e.watch(runctx, server, prepared, line) })
 	line("SourceEgg | Starting " + prepared.Profile.Name)
 	err = server.Run(runctx)
@@ -89,11 +115,11 @@ func (e *Egg) watch(ctx context.Context, server *supervisor.Server, p Prepared, 
 		case <-ticker.C:
 			players := -1
 			queryCtx, queryCancel := context.WithTimeout(ctx, 2*time.Second)
-			count, err := QueryPlayers(queryCtx, fmt.Sprintf("127.0.0.1:%d", e.Config.Port))
+			info, err := QueryInfo(queryCtx, fmt.Sprintf("127.0.0.1:%d", e.Config.Port))
 			queryCancel()
 			ready := err == nil
 			if ready {
-				players = count
+				players = info.Players
 				if !checksSent {
 					_ = server.Send("meta version")
 					if e.Config.InstallSourceMod {
@@ -107,7 +133,7 @@ func (e *Egg) watch(ctx context.Context, server *supervisor.Server, p Prepared, 
 				continue
 			}
 			requestCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			res, err := e.call(requestCtx, node.Request{Action: "state", Identity: p.Identity, Players: players, Ready: ready, Generation: p.Generation})
+			res, err := e.call(requestCtx, node.Request{Action: "state", Identity: p.Identity, Players: players, Ready: ready, Generation: p.Generation, Map: info.Map, Name: info.Name})
 			cancel()
 			if err == nil && res.RestartSeconds > 0 {
 				_ = server.Send(fmt.Sprintf("say Server update restart in approximately %d seconds", res.RestartSeconds))
