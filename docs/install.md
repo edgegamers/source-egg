@@ -37,32 +37,40 @@ Wait for the release assets/image before running it. The bootstrap handles sudo,
 
 The daemon discovers exact approved image repositories through Docker, verifies each selected profile, and mounts a separate broker socket, base-game store and framework cache read-only. Containers never receive Docker or root control sockets. Boot waits up to 20 seconds for discovery; first downloads can take longer. `NODE_WAIT_SECONDS` can adjust the discovery wait (0–300) for testing.
 
-The wizard writes `/etc/sourcenode/config.json` and enables/restarts the service. Advanced edits can be made directly, followed by a service restart. Relevant defaults:
+The wizard reviews settings, writes `/etc/sourcenode/config.json` and enables/restarts the service. Advanced edits can be made directly, followed by a service restart. Relevant fresh-install defaults:
 
 ```json
 {
   "node_channel": "stable",
   "prefetch_games": [],
   "shared": true,
+  "push_method": "symlink",
+  "max_workers": 8,
+  "auto_restart": true,
+  "steam_validate": false,
   "framework_cache": true,
   "poll_seconds": 5,
-  "check_minutes": 30,
+  "check_minutes": 1,
   "restart": {
-    "mode": "empty",
-    "window": "",
-    "max_delay_minutes": 60,
-    "warn_seconds": 60
+    "mode": "immediate",
+    "window": "04:00-06:00",
+    "max_delay_minutes": 720,
+    "warn_seconds": 300
   },
-  "password_scope": "game",
-  "password_interval_hours": 168,
+  "password_enabled": false,
+  "password_scope": "server",
+  "password_format": "eff",
+  "password_calendar_months": 1,
+  "password_interval_hours": 0,
+  "password_timezone": "UTC",
   "webhook": "",
   "password_webhook": ""
 }
 ```
 
-The excerpt omits path/image/Steam settings. Set `wings_config` for nonstandard config locations; otherwise the daemon checks `/etc/pelican/config.yml` and `/etc/pterodactyl/config.yml`. HTTPS restarts pin the certificate configured in Wings.
+The excerpt omits path/image/Steam settings and operational modules. Existing configurations retain their saved settings and legacy defaults. Set `wings_config` for nonstandard config locations; otherwise the daemon checks `/etc/pelican/config.yml` and `/etc/pterodactyl/config.yml`. HTTPS restarts pin the certificate configured in Wings.
 
-Restart policies are `immediate`, `empty`, and `window`. Windows use `HH:MM-HH:MM` in the node's local timezone and wait for that window even when empty. A nonzero maximum delay can override waiting; zero disables that deadline. Unknown player counts are never treated as empty. Local A2S counts exclude bots.
+Restart policies are `immediate`, `empty`, and `window`. Window mode restarts when empty or within `HH:MM-HH:MM` in the node's local timezone. A nonzero maximum delay can override waiting; zero disables that deadline. Unknown player counts are never treated as empty. Local A2S counts exclude bots. Disable `auto_restart` to stage updates until a manual server restart.
 
 `SOURCE_MODE=standalone` keeps private game files while still allowing node caching/passwords. `managed` requires sharing; `auto` chooses on first start. An already managed volume refuses unsafe local SteamCMD fallback. Materializing it back to standalone is not automated.
 
@@ -71,6 +79,8 @@ Restart policies are `immediate`, `empty`, and `window`. Windows use `HH:MM-HH:M
 Complete builds live under `/srv/source-shared/generations/<game>/<branch>/<runtime>/<build-token>`. Updates use private staging copies, validate the install and publish fresh generations. Peak disk use includes retained builds plus staging; unchanged remote build IDs avoid staging copies.
 
 Running servers keep their concrete VPK targets until restart. Server configs, addons, logs, gameinfo and event content remain private. Event maps are ordinary uploads; no Workshop acquisition or map cache is provided.
+
+Symlink delivery remains the default. `hardlink` shares VPK inodes on the same filesystem, requiring a stable non-root container UID distinct from the shared file owner. `copy` makes private VPK copies. Unsupported hardlinks fail explicitly, preserving existing files. Both alternate modes require a matched egg image supporting node-side delivery; old images continue to work with symlinks. Immutable generations remain the update/rollback boundary in all modes.
 
 ```bash
 sudo sourcenode update css
@@ -90,7 +100,7 @@ Framework downloads are cached centrally and applied at startup. Missing exact f
 
 ## Passwords
 
-Generated passwords apply to `sv_password`, not RCON. Enable `GENERATE_PASSWORD=1` on participating dev servers. Node default `password_scope` is `game`.
+Generated passwords apply to `sv_password`, not RCON. Enable node password management in the wizard and `GENERATE_PASSWORD=1` on participating dev servers. Fresh nodes offer `server` scope; existing nodes retain their saved scope (legacy default `game`).
 
 | Scope | Sharing boundary |
 | --- | --- |
@@ -98,7 +108,9 @@ Generated passwords apply to `sv_password`, not RCON. Enable `GENERATE_PASSWORD=
 | `server` | One server UUID |
 | `node` | Participating servers across games on this node |
 
-Admin-only `PASSWORD_SCOPE=default` follows node policy; `game`, `server` and `node` override it per server. No sharing crosses nodes. Assignments persist privately and contain 18 cryptographically random bytes encoded as 24 URL-safe characters. Rotation defaults to 168 hours; zero retains assignments without expiry.
+Admin-only `PASSWORD_SCOPE=default` follows node policy; `game`, `server` and `node` override it per server. No sharing crosses nodes. Assignments persist privately. Choose EFF word phrases (three words by default, optional custom dictionary) or tokens containing 18 cryptographically random bytes encoded as 24 URL-safe characters. Fresh opt-in uses monthly rotation; legacy token/hour settings remain unchanged on upgrades.
+
+The wizard offers daily, weekly, bi-weekly, monthly, custom hours/months, never, and cron. For Monday 04:00 Chicago rotation, use `password_cron: "0 4 * * MON"` and `password_timezone: "America/Chicago"`. Existing assignments keep their saved due dates; new assignments and later rotations use the selected schedule. See [cron syntax, DST and migration details](reference/node-config.md#password-schedules).
 
 The first query after expiry regenerates the scope assignment. Each running participant detects the change and requests its own Wings restart; stopped servers apply it on next startup. Password rotation is separate from game-update windows. Generated-password startup fails closed without a node assignment.
 
@@ -110,12 +122,14 @@ Ordinary `webhook` events exclude credentials. Optional `password_webhook` sends
 
 Disabling generation makes `SERVER_PASSWORD` authoritative; an empty manual value means an open server. Live console overrides remain until startup reapplies configured values and are redacted from saved logs.
 
+The node's separate master switch stops new assignments/rotation while retaining cached enrolled-server passwords. To return an individual server to its manual password, turn off its panel `GENERATE_PASSWORD` switch.
+
 ## Diagnostics and remaining work
 
 `status` shows game/running state, reported readiness/players, generation references, pending restarts, module counters and schedules. `doctor` checks Docker, SteamCMD, Wings, disk/reboot state, mounted paths, webhook availability and recent crashes; it does not certify retail-game compatibility.
 
 Local console logs remain `.source/logs/console.log`, rotating at 32 MiB with three older files. Optional node archives add daily gzip/retention; server `ENABLE_LOG_FILES=1` enables forwarding. Unexpected exits queue private crash bundles with a 500-line tail, map/players, framework versions and nearby evidence. Bounded queues protect console throughput.
 
-Backups/restore, resource metrics/Prometheus/top, scheduled cleanup, optional host maintenance, verified node updates and uninstall are documented in [Node operations](operations.md). Password word phrases/calendar rotation are optional; existing token/hour behavior remains the default. See the [complete configuration](reference/node-config.md).
+Backups/restore, resource metrics/Prometheus/top, scheduled cleanup, host maintenance, verified node updates and uninstall are documented in [Node operations](operations.md). Panel startup parameters, SourceMod plugin switches, standalone cleanup, console filtering and debugging are in [Server controls](server-controls.md). See the [complete node configuration](reference/node-config.md).
 
 Real game startup, client authentication/joins, map changes, framework loading and live panel/Wings acceptance remain release gates for all five games. A2S readiness is not proof of third-party plugin health. Automatic canaries/health rollback remain beyond reference parity. Workshop/map caching and the connection guard are excluded.

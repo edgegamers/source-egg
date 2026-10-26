@@ -99,6 +99,9 @@ func (d *Daemon) reconcile() {
 	}
 }
 func (d *Daemon) rollout(ctx context.Context) {
+	if !d.Config.AutoRestart {
+		return
+	}
 	d.mu.Lock()
 	servers := make([]Server, 0, len(d.servers))
 	for _, s := range d.servers {

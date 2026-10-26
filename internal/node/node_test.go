@@ -56,11 +56,11 @@ func TestDiscoveryRejectsChangedInstalledProfile(t *testing.T) {
 	}
 }
 
-func TestWindowRequiresWindowEvenWhenEmpty(t *testing.T) {
+func TestWindowRestartsEmptyServerOutsideWindow(t *testing.T) {
 	p := RestartPolicy{Mode: "window", Window: "03:00-04:00"}
 	noon := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
-	if Due(p, noon, noon, 0) {
-		t.Fatal("window policy restarted at noon")
+	if !Due(p, noon, noon, 0) {
+		t.Fatal("empty server did not restart outside window")
 	}
 	if !Due(p, noon.Add(-12*time.Hour), noon.Add(-9*time.Hour), 5) {
 		t.Fatal("did not restart inside window")

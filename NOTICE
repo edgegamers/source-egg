@@ -9,7 +9,13 @@ adapted from s2script/s2script-cs2-egg at commit
 K4ryuu/CS2-Egg-Go. Original code copyright Kőrösfalvi "K4ryuu" Martin;
 downstream changes by S2Script contributors. SPDX headers are retained.
 
+The installer presentation and applicable operator/server behavior also follow
+the same upstream revision, adapted for five Source 1 games and immutable game
+generations. Cron password scheduling is an additional Source Egg feature.
+
 Upstream: https://github.com/s2script/s2script-cs2-egg
 
 Source engine square icon artwork: Devicon, copyright (c) 2015 konpa,
 MIT licensed; see assets/LICENSE.devicon. Source branding belongs to Valve.
+Installer EdgeGamers mark supplied by the project user; branding belongs to
+EdgeGamers. Terminal artwork is derived from those two supplied/project assets.

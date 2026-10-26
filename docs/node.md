@@ -32,17 +32,25 @@ curl -fsSL https://raw.githubusercontent.com/edgegamers/source-egg/main/scripts/
 
 | Choice | Purpose |
 | --- | --- |
-| Base-game VPK sharing | One immutable base-game store per node, with private server configs/addons |
-| Games to prepare now | Comma-separated `csgo,css,dods,l4d2,tf2`; accepts display names too; `none` waits for the first server |
-| Metamod/SourceMod cache | Download release metadata/archives once and deploy private copies |
-| Shared/cache directories | Dedicated directories with enough room for games, retained generations and staging |
-| Restart policy | Immediate, empty-server, or a maintenance window, with maximum delay/countdown |
-| Password scope | `game` (default dev), `server`, or `node`; each server must still opt in |
-| Password rotation | Hours until regeneration; zero disables expiry |
-| Discord events | Optional ordinary event webhook |
-| Private password webhook | Optional separate credential delivery; ordinary events exclude passwords |
+| Node releases | Stable/beta/dev channel, automatic updates and check interval |
+| Base-game files | Shared directory, SteamCMD path/validation, symlink/hardlink/copy delivery and worker count |
+| Games to prepare now | Comma-separated `csgo,css,dods,l4d2,tf2`, `all`, or `none` to wait for the first server |
+| Game updates | Check interval, automatic restart switch, immediate/empty/window policy, delay and countdown |
+| Metamod/SourceMod cache | Directory, metadata refresh, archive retention and exact fleet versions |
+| Passwords | Master switch, game/server/node scope, token/EFF phrases, custom dictionary and private directory |
+| Password rotation | Daily/weekly/bi-weekly/monthly, custom hours/months, never, or five-field cron with timezone |
+| Discord | Ordinary/private webhooks, event selection, node name, bot username and avatar |
+| Console/crash storage | Directories, retention ages and crash count |
+| Backups | Directory, daily hour, include/exclude patterns and independent age/count retention |
+| Cleanup | Interval, startup/open-file switches, and enable/age settings for every saved rule |
+| Metrics | Listener and sample interval |
+| Host maintenance | Interval, dry run, image/build-cache/journal tasks, retention and free-disk threshold |
 
-Only the features implemented for this Source egg are offered. There are no Workshop/map-cache or connection-guard questions. Existing settings are defaults on reruns; stored webhook URLs are not echoed. The wizard gathers/validates answers before saving configuration.
+The wizard opens with EdgeGamers and Source 1 terminal artwork, then presents sections, inline help, a complete settings summary, installation progress and useful commands. `NO_COLOR` disables ANSI color; narrow terminals stack the logos and tables, and ASCII terminals use a text banner. There are no CS2 Workshop/map-cache or connection-guard questions.
+
+Existing settings are defaults on reruns; stored credentials are hidden, custom cleanup rules and per-server framework exceptions are retained. Configuration is written only after accepting the summary. EOF or declining the review cancels setup.
+
+Fresh installs enable shared files, framework caching, backups, cleanup, console/crash archives, metrics, automatic node updates and dry-run maintenance. Fresh game-update defaults are a one-minute check and immediate restarts; the review lets you change them. Password management requires explicit node opt-in and defaults to a per-server, three-word EFF phrase with monthly rotation when enabled. Existing installations retain their previous module and password choices.
 
 Installation writes `/etc/sourcenode/config.json`, installs `/usr/local/bin/sourcenode`, provisions host SteamCMD if needed, and enables/restarts `sourcenode.service`. Generated passwords remain off on individual servers until `GENERATE_PASSWORD=1` is set in the panel.
 
@@ -72,7 +80,7 @@ Keep the default discovery repository `ghcr.io/edgegamers/source-egg` unless usi
 
 Upgrade the node with `sudo sourcenode self-update`, or rerun the verified bootstrap. `self-update --check` checks without installing; `--channel stable|beta` and `--release TAG` override selection. Scheduled self-updates are optional in the wizard/config. `sudo sourcenode update` also updates the node; `sudo sourcenode update css` updates CS:S game files. Existing settings survive upgrades.
 
-The wizard also offers backups, server cleanup, node console archives/crash bundles, resource metrics and host maintenance. These operations use the [full command guide](operations.md) and [configuration reference](reference/node-config.md). Maintenance starts disabled/dry-run. `sudo sourcenode uninstall --yes` removes the service/binary while retaining game/shared/private data; `--purge` additionally removes only the config file.
+These operations use the [full command guide](operations.md) and [configuration reference](reference/node-config.md). Fresh maintenance is enabled in dry-run mode; existing installations keep their saved choice. The `dev` channel is for manually supplied binaries and performs no release lookup unless an exact release is explicitly selected. `sudo sourcenode uninstall --yes` removes the service/binary while retaining game/shared/private data; `--purge` additionally removes only the config file.
 
 Setup reuses an existing SteamCMD installation. If that installation is damaged or incomplete, repair it before rerunning; the installer does not yet diagnose every existing-client corruption case. Managed directories must use real dedicated paths, and private node state must stay outside shared/cache roots.
 

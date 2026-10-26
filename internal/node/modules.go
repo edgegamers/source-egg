@@ -48,14 +48,19 @@ func (c Config) effectiveOperations() operations.Config {
 func (c Config) PrivateDirectories() []string {
 	o := c.effectiveObservability()
 	b := c.effectiveOperations()
-	return []string{c.StateDir, o.Logs.Dir, o.Crashes.Dir, b.Backup.Dir}
+	return []string{c.StateDir, c.passwordDirectory(), o.Logs.Dir, o.Crashes.Dir, b.Backup.Dir}
 }
 func (c Config) passwordOptions() passwords.Options {
 	interval := time.Duration(c.PasswordIntervalHours) * time.Hour
 	if c.PasswordMonths > 0 {
 		interval = 0
 	}
-	return passwords.Options{Format: c.PasswordFormat, Words: c.PasswordWords, CalendarMonths: c.PasswordMonths, Interval: interval}
+	months := c.PasswordMonths
+	if c.PasswordCron != "" {
+		interval = 0
+		months = 0
+	}
+	return passwords.Options{Format: c.PasswordFormat, Words: c.PasswordWords, CalendarMonths: months, Interval: interval, Cron: c.PasswordCron, Timezone: c.PasswordTimezone, Wordlist: c.PasswordWordlist}
 }
 func (d *Daemon) initModules() error {
 	var e error

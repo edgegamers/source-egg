@@ -72,7 +72,9 @@ type Daemon struct {
 	socketBoot       map[string]string
 	passwordRestarts map[string]string
 	listeners        map[string]net.Listener
-	prepare          sync.Mutex
+	prepare          sync.RWMutex // Shared preparations; exclusive prune/pin changes.
+	prepareWorkers   chan struct{}
+	prepareJobs      map[preparationKey]*preparationCall
 	updating         sync.Mutex
 	notify           sync.Mutex
 }
@@ -84,11 +86,15 @@ func New(cfg Config) (*Daemon, error) {
 	if e := os.MkdirAll(cfg.StateDir, 0700); e != nil {
 		return nil, e
 	}
-	pw, e := passwords.OpenWithOptions(filepath.Join(cfg.StateDir, "passwords"), cfg.passwordOptions())
-	if e != nil {
-		return nil, e
+	var pw *passwords.Store
+	var e error
+	if cfg.PasswordEnabled {
+		pw, e = passwords.OpenWithOptions(cfg.passwordDirectory(), cfg.passwordOptions())
+		if e != nil {
+			return nil, e
+		}
 	}
-	d := &Daemon{Config: cfg, Docker: NewDocker(), Store: &content.Store{Dir: cfg.SharedDir, Installer: &content.Steam{Executable: cfg.SteamCMD, Username: cfg.SteamUsername, Password: cfg.SteamPassword}}, Cache: addons.NewCache(cfg.CacheDir, nil), Passwords: pw, states: map[string]State{}, servers: map[string]Server{}, refs: map[string]Reference{}, pending: map[string]pending{}, socketBoot: map[string]string{}, passwordRestarts: map[string]string{}, listeners: map[string]net.Listener{}}
+	d := &Daemon{Config: cfg, Docker: NewDocker(), Store: &content.Store{Dir: cfg.SharedDir, Installer: &content.Steam{Executable: cfg.SteamCMD, Username: cfg.SteamUsername, Password: cfg.SteamPassword, Validate: cfg.SteamValidate}}, Cache: addons.NewCache(cfg.CacheDir, nil), Passwords: pw, states: map[string]State{}, servers: map[string]Server{}, refs: map[string]Reference{}, pending: map[string]pending{}, socketBoot: map[string]string{}, passwordRestarts: map[string]string{}, listeners: map[string]net.Listener{}}
 	root, e := os.OpenRoot(cfg.StateDir)
 	if e != nil {
 		return nil, e
@@ -174,55 +180,7 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 	out := Response{}
 	switch r.Action {
 	case "prepare":
-		d.prepare.Lock()
-		defer d.prepare.Unlock()
-		out.Managed = d.Config.Shared && s.Env["SOURCE_MODE"] != "standalone"
-		if out.Managed {
-			g, e := d.desired(s)
-			if os.IsNotExist(e) {
-				g, e = d.Store.Ensure(ctx, s.Identity)
-			}
-			if e != nil {
-				return out, e
-			}
-			out.Generation = g
-			d.mu.Lock()
-			ref := d.refs[s.UUID]
-			ref.Pending = g.Key
-			d.refs[s.UUID] = ref
-			e = d.saveRefs()
-			d.mu.Unlock()
-			if e != nil {
-				return out, e
-			}
-		}
-		if d.Config.FrameworkCache {
-			for _, name := range []string{"metamod", "sourcemod"} {
-				if !frameworkEnabled(s.Env, name) {
-					continue
-				}
-				pkg, e := d.Cache.Resolve(ctx, name, d.frameworkPin(s, name))
-				if e != nil {
-					return out, e
-				}
-				archive, e := d.Cache.Fetch(ctx, pkg)
-				if e != nil {
-					return out, e
-				}
-				rel, e := filepath.Rel(d.Config.CacheDir, archive)
-				if e != nil || !filepath.IsLocal(rel) {
-					return out, errors.New("invalid cache receipt")
-				}
-				out.Frameworks = append(out.Frameworks, Framework{pkg, rel})
-			}
-		}
-		if s.Env["GENERATE_PASSWORD"] == "1" {
-			a, e := d.password(ctx, s)
-			if e != nil {
-				return out, e
-			}
-			out.Password = &a
-		}
+		return d.prepareServer(ctx, s, r.HostDelivery)
 	case "applied":
 		d.mu.Lock()
 		defer d.mu.Unlock()
@@ -246,13 +204,17 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 		if r.Ready {
 			d.observeFrameworks(ctx, s)
 		}
-		if !p.WarnedAt.IsZero() {
+		if d.Config.AutoRestart && !p.WarnedAt.IsZero() {
 			out.RestartSeconds = int(time.Until(p.WarnedAt.Add(time.Duration(d.Config.Restart.WarnSeconds) * time.Second)).Seconds())
 			if out.RestartSeconds < 1 {
 				out.RestartSeconds = 1
 			}
 		}
 	case "password":
+		if !d.Config.PasswordEnabled {
+			out.PasswordDisabled = true
+			return out, nil
+		}
 		a, e := d.password(ctx, s)
 		if e != nil {
 			return out, e
@@ -327,7 +289,7 @@ func frameworkEnabled(env map[string]string, name string) bool {
 	return env["INSTALL_"+strings.ToUpper(name)] != "0"
 }
 func (d *Daemon) password(ctx context.Context, s Server) (passwords.Assignment, error) {
-	if s.Env["GENERATE_PASSWORD"] != "1" {
+	if !d.Config.PasswordEnabled || d.Passwords == nil || s.Env["GENERATE_PASSWORD"] != "1" {
 		return passwords.Assignment{}, errors.New("generated passwords not enabled")
 	}
 	scope := s.Env["PASSWORD_SCOPE"]
@@ -475,7 +437,7 @@ func (d *Daemon) attach(s Server) error {
 	}
 	server := &http.Server{Handler: d.Handler(s), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	go server.Serve(listener)
-	if e = BindReadOnly(s.PID, dir, SocketDir); e == nil && d.Config.Shared && s.Env["SOURCE_MODE"] != "standalone" {
+	if e = BindReadOnly(s.PID, dir, SocketDir); e == nil && d.Config.Shared && d.Config.PushMethod == "symlink" && s.Env["SOURCE_MODE"] != "standalone" {
 		e = BindReadOnly(s.PID, d.Config.SharedDir, SharedMount)
 	}
 	if e == nil && d.Config.FrameworkCache {

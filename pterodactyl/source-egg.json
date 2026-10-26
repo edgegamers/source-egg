@@ -231,6 +231,236 @@
             "user_editable": true,
             "rules": "required|boolean",
             "field_type": "text"
+        },
+        {
+            "name": "Custom startup parameters",
+            "description": "Extra argv with single/double quotes. No shell expansion. Game identity, port, map, passwords and wrapper controls cannot be overridden.",
+            "env_variable": "CUSTOM_PARAMS",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|max:8192",
+            "field_type": "text"
+        },
+        {
+            "name": "Standalone cleanup",
+            "description": "Opt in to cleanup before startup using .source/configs/cleanup.json. Skipped when the node handles cleanup. Rules are confined to this server and never follow symlinks.",
+            "env_variable": "CLEANUP_ENABLED",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Console filter",
+            "description": "Filter panel output using .source/configs/console-filter.json. @pattern matches a complete line; other patterns match substrings. Masked local and node logs retain all lines.",
+            "env_variable": "ENABLE_FILTER",
+            "default_value": "0",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|boolean",
+            "field_type": "text"
+        },
+        {
+            "name": "Console log level",
+            "description": "Empty uses .source/configs/logging.json. DEBUG, INFO, WARNING or ERROR sets the minimum panel level. File logs retain all masked lines.",
+            "env_variable": "CONSOLE_LOG_LEVEL",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|string|in:DEBUG,INFO,WARN,WARNING,ERROR",
+            "field_type": "text"
+        },
+        {
+            "name": "Remote debugger port",
+            "description": "Opt in to gdbserver on this allocated port; must differ from the game port. Grants debugger access to the server process. Requires network access and container ptrace support. Empty disables.",
+            "env_variable": "GDB_DEBUG_PORT",
+            "default_value": "",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "nullable|integer|between:1,65535",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod basecommands",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_BASECOMMANDS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod basechat",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_BASECHAT",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod playercommands",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_PLAYERCOMMANDS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod antiflood",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_ANTIFLOOD",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod adminhelp",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_ADMINHELP",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod basecomm",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_BASECOMM",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod basebans",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_BASEBANS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod reservedslots",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_RESERVEDSLOTS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod basetriggers",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_BASETRIGGERS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod funcommands",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_FUNCOMMANDS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod clientprefs",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_CLIENTPREFS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod adminmenu",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_ADMINMENU",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod basevotes",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_BASEVOTES",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod nominations",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed. Requires a mapchooser plugin; enable SOURCEMOD_PLUGIN_MAPCHOOSER for the stock dependency.",
+            "env_variable": "SOURCEMOD_PLUGIN_NOMINATIONS",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod rockthevote",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed. Requires a mapchooser plugin; enable SOURCEMOD_PLUGIN_MAPCHOOSER for the stock dependency.",
+            "env_variable": "SOURCEMOD_PLUGIN_ROCKTHEVOTE",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod nextmap",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_NEXTMAP",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod funvotes",
+            "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
+            "env_variable": "SOURCEMOD_PLUGIN_FUNVOTES",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
+        },
+        {
+            "name": "SourceMod mapchooser",
+            "description": "Stock map vote dependency used by nominations and rockthevote. default preserves placement; 1 enables; 0 disables. Custom plugins are never overwritten.",
+            "env_variable": "SOURCEMOD_PLUGIN_MAPCHOOSER",
+            "default_value": "default",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": "required|string|in:default,1,0",
+            "field_type": "text"
         }
     ]
 }

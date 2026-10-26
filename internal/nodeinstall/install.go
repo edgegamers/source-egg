@@ -16,6 +16,7 @@ import (
 	"github.com/edgegamers/source-egg/internal/addons"
 	"github.com/edgegamers/source-egg/internal/fsx"
 	"github.com/edgegamers/source-egg/internal/node"
+	"github.com/edgegamers/source-egg/internal/terminalui"
 )
 
 type Options struct {
@@ -68,7 +69,7 @@ func Install(ctx context.Context, o Options) error {
 	}
 	cfg := o.Defaults
 	if cfg.StateDir == "" {
-		cfg = node.DefaultConfig()
+		cfg = node.FreshConfig()
 	}
 	existing, err := node.LoadConfig(o.ConfigPath)
 	if err == nil {
@@ -82,8 +83,9 @@ func Install(ctx context.Context, o Options) error {
 	if err = cfg.Validate(); err != nil {
 		return err
 	}
+	var pins *node.FrameworkPolicy
 	if !o.Yes {
-		cfg, err = Configure(cfg, o.Input, o.Output)
+		cfg, pins, err = configure(cfg, o.Input, o.Output)
 		if err != nil {
 			return err
 		}
@@ -108,9 +110,12 @@ func Install(ctx context.Context, o Options) error {
 	if o.Provision == nil {
 		o.Provision = provisionSteam
 	}
+	u := terminalui.New(o.Output)
+	u.Rule("Installing")
 	if err = o.Provision(ctx, cfg.SteamCMD); err != nil {
 		return fmt.Errorf("prepare host SteamCMD: %w", err)
 	}
+	u.Step("Host SteamCMD is ready")
 	for _, dir := range []string{cfg.StateDir, cfg.SharedDir, cfg.CacheDir} {
 		if err = os.MkdirAll(dir, 0755); err != nil {
 			return err
@@ -135,8 +140,29 @@ func Install(ctx context.Context, o Options) error {
 	if err = fsx.Copy(binaryRoot, filepath.Base(o.BinaryPath), o.Executable, 0755); err != nil {
 		return err
 	}
+	u.Step("Binary in place at " + o.BinaryPath)
 	if err = SaveConfig(o.ConfigPath, cfg); err != nil {
 		return err
+	}
+	u.Step("Config written to " + o.ConfigPath)
+	if pins != nil {
+		// Preserve per-server CLI pins, including updates made while answering
+		// wizard questions. The reviewed fleet choices replace only fleet pins.
+		latest, err := loadSetupPins(cfg.StateDir)
+		if err != nil {
+			return err
+		}
+		latest.Fleet = pins.Fleet
+		root, err := os.OpenRoot(cfg.StateDir)
+		if err != nil {
+			return err
+		}
+		err = fsx.JSON(root, "framework-pins.json", latest, 0600)
+		root.Close()
+		if err != nil {
+			return err
+		}
+		u.Step("Framework version locks saved")
 	}
 	if err = os.MkdirAll(filepath.Dir(o.UnitPath), 0755); err != nil {
 		return err
@@ -155,8 +181,35 @@ func Install(ctx context.Context, o Options) error {
 			return fmt.Errorf("systemd service setup failed: %w", err)
 		}
 	}
-	fmt.Fprintf(o.Output, "Installed sourcenode (release channel: %s).\nConfig: %s\nShared files: %s\nFramework cache: %s\n", cfg.NodeChannel, o.ConfigPath, cfg.SharedDir, cfg.CacheDir)
-	fmt.Fprintln(o.Output, "Generated join passwords remain opt-in per server.\nNext: sudo sourcenode status; sudo sourcenode doctor; journalctl -u sourcenode -f")
+	u.Step("Service sourcenode enabled and started")
+	u.Rule("Done")
+	u.KV("Release channel", cfg.NodeChannel)
+	u.KV("Health check", "sudo sourcenode doctor")
+	u.KV("Status", "sudo sourcenode status")
+	u.KV("Daemon logs", "journalctl -u sourcenode -f")
+	if cfg.Metrics.Enabled {
+		u.KV("Live resource view", "sudo sourcenode top")
+	}
+	if cfg.Operations.Backup.Enabled {
+		u.KV("Backups", "sudo sourcenode backups")
+	}
+	if cfg.Operations.Cleanup.Enabled {
+		u.KV("Cleanup", "sudo sourcenode cleanup")
+	}
+	if cfg.Observability.Crashes.Enabled {
+		u.KV("Crash evidence", "sudo sourcenode crashes")
+	}
+	if cfg.Observability.Logs.Enabled {
+		u.KV("Console archives", "sudo sourcenode logs")
+	}
+	if cfg.FrameworkCache {
+		u.KV("Version locks", "sudo sourcenode pins")
+	}
+	if cfg.Operations.Maintenance.Enabled {
+		u.KV("Host maintenance", "sudo sourcenode maintenance")
+	}
+	u.KV("Reconfigure", "sudo sourcenode install")
+	u.Help("Generated join passwords remain opt-in per server (GENERATE_PASSWORD=1).")
 	return nil
 }
 func validateManagedDirectories(c node.Config) error {

@@ -1,120 +1,119 @@
 package nodeinstall
 
 import (
-	"fmt"
+	"errors"
 	"path/filepath"
+	"slices"
 
 	"github.com/edgegamers/source-egg/internal/node"
+	"github.com/edgegamers/source-egg/internal/observability"
+	"github.com/edgegamers/source-egg/internal/operations"
 )
 
-func configureOperations(c node.Config, w wizard) (node.Config, error) {
-	var err error
-	fmt.Fprintln(w.output, "Optional operations modules (existing choices are retained)")
-	if c.PasswordFormat, err = w.ask("Join-password format (token or eff word phrase)", c.PasswordFormat, func(s string) error {
-		if s != "token" && s != "eff" {
-			return fmt.Errorf("choose token or eff")
+func configureOperations(c *node.Config, w *wizard) {
+	w.sectionTitle("Discord alerts", "Ordinary notices never contain generated passwords. Use the separate private webhook for credentials.")
+	hook := c.Observability.Alerts.Webhook
+	if hook == "" {
+		hook = c.Webhook
+	}
+	enabled := c.Observability.Alerts.Enabled && hook != ""
+	w.yes(&enabled, "Enable Discord alerts")
+	c.Observability.Alerts.Enabled = enabled
+	if enabled {
+		w.hook(&hook, "Discord event webhook")
+		c.Webhook = hook
+		c.Observability.Alerts.Webhook = hook
+		if hook == "" {
+			c.Observability.Alerts.Enabled = false
+			w.ui.Help("No webhook configured; ordinary alerts remain disabled.")
 		}
-		return nil
-	}); err != nil {
-		return c, err
+		w.list(&c.Observability.Alerts.Events, "Events to post", func(v []string) error {
+			for _, s := range v {
+				if s != "all" && !slices.Contains(observability.EventKinds, s) {
+					return errors.New("Unknown event. Use all or one of the listed events.")
+				}
+			}
+			return nil
+		}, append([]string{"all = every ordinary notice."}, observability.EventKinds...)...)
+		w.optional(&c.Observability.Alerts.Name, "Node name shown in messages", nil)
+		w.text(&c.Observability.Alerts.Username, "Name the bot posts under", nil)
+		w.optional(&c.Observability.Alerts.AvatarURL, "Avatar image URL", func(s string) error { x := observability.DefaultConfig(); x.Alerts.AvatarURL = s; return x.Validate() }, "HTTPS image URL; empty keeps the webhook picture.")
 	}
-	if c.PasswordFormat == "eff" {
-		words := c.PasswordWords
-		if words == 0 {
-			words = 3
-		}
-		if c.PasswordWords, err = w.number("Words per join-password phrase", words, 3, 16); err != nil {
-			return c, err
-		}
-	}
-	if c.PasswordMonths, err = w.number("Calendar months per rotation (0 uses hours above)", c.PasswordMonths, 0, 1200); err != nil {
-		return c, err
-	}
-	if c.Observability.Logs.Enabled, err = w.boolean("Archive server console logs on this node", c.Observability.Logs.Enabled); err != nil {
-		return c, err
-	}
+	w.sectionTitle("Console archives", "One gzip-compressed archive per server per day on this node. Servers also need ENABLE_LOG_FILES=1.")
+	w.yes(&c.Observability.Logs.Enabled, "Archive server console logs on this node")
 	if c.Observability.Logs.Enabled {
-		dir := c.Observability.Logs.Dir
-		if dir == "" {
-			dir = filepath.Join(c.StateDir, "logs")
+		if c.Observability.Logs.Dir == "" {
+			c.Observability.Logs.Dir = filepath.Join(c.StateDir, "logs")
 		}
-		if c.Observability.Logs.Dir, err = w.ask("Node console archive directory", dir, nil); err != nil {
-			return c, err
-		}
-		if c.Observability.Logs.KeepDays, err = w.number("Console archive retention days (hard ceiling 365)", c.Observability.Logs.KeepDays, 0, 365); err != nil {
-			return c, err
-		}
+		w.path(&c.Observability.Logs.Dir, "Node console archive directory")
+		w.number(&c.Observability.Logs.KeepDays, "Console archive retention days", 0, 365, "0 uses the hard 365-day ceiling. Older daily files are gzip-compressed.")
 	}
-	if c.Observability.Crashes.Enabled, err = w.boolean("Collect crash bundles and nearby evidence", c.Observability.Crashes.Enabled); err != nil {
-		return c, err
-	}
+	w.sectionTitle("Crash bundles", "Console tail, metadata and bounded nearby dump/log evidence.")
+	w.yes(&c.Observability.Crashes.Enabled, "Collect crash bundles and nearby evidence")
 	if c.Observability.Crashes.Enabled {
-		dir := c.Observability.Crashes.Dir
-		if dir == "" {
-			dir = filepath.Join(c.StateDir, "crashes")
+		if c.Observability.Crashes.Dir == "" {
+			c.Observability.Crashes.Dir = filepath.Join(c.StateDir, "crashes")
 		}
-		if c.Observability.Crashes.Dir, err = w.ask("Crash bundle directory", dir, nil); err != nil {
-			return c, err
-		}
-		if c.Observability.Crashes.KeepDays, err = w.number("Crash bundle retention days (0 no age limit)", c.Observability.Crashes.KeepDays, 0, 3650); err != nil {
-			return c, err
-		}
-		if c.Observability.Crashes.KeepCount, err = w.number("Crash bundles retained per server (0 no count limit)", c.Observability.Crashes.KeepCount, 0, 10000); err != nil {
-			return c, err
-		}
+		w.path(&c.Observability.Crashes.Dir, "Crash bundle directory")
+		w.number(&c.Observability.Crashes.KeepCount, "Crash bundles retained per server", 0, 10000, "0 = unlimited count.")
+		w.number(&c.Observability.Crashes.KeepDays, "Crash bundle retention days", 0, 36500, "0 = unlimited age.")
 	}
-	if c.Operations.Backup.Enabled, err = w.boolean("Schedule nightly private-data backups", c.Operations.Backup.Enabled); err != nil {
-		return c, err
-	}
+	w.sectionTitle("Backups", "Scheduled private server data, outside server volumes. Stock game files remain excluded.")
+	w.yes(&c.Operations.Backup.Enabled, "Enable backups")
 	if c.Operations.Backup.Enabled {
-		dir := c.Operations.Backup.Dir
-		if dir == "" || dir == "/var/lib/sourcenode/backups" {
-			dir = filepath.Join(c.StateDir, "backups")
+		b := &c.Operations.Backup
+		if b.Dir == "" || b.Dir == "/var/lib/sourcenode/backups" {
+			b.Dir = filepath.Join(c.StateDir, "backups")
 		}
-		if c.Operations.Backup.Dir, err = w.ask("Backup directory outside server volumes", dir, nil); err != nil {
-			return c, err
-		}
-		if c.Operations.Backup.Hour, err = w.number("Nightly backup hour (node local time)", c.Operations.Backup.Hour, 0, 23); err != nil {
-			return c, err
-		}
-		if c.Operations.Backup.KeepDays, err = w.number("Backup retention days", c.Operations.Backup.KeepDays, 1, 3650); err != nil {
-			return c, err
-		}
-		if c.Operations.Backup.KeepCount, err = w.number("Backups retained per server", c.Operations.Backup.KeepCount, 1, 10000); err != nil {
-			return c, err
-		}
+		w.path(&b.Dir, "Backup directory outside server volumes")
+		w.number(&b.Hour, "Hour of the daily backup run", 0, 23, "Node local time, 0..23.")
+		w.number(&b.KeepDays, "Days to keep a backup", 0, 36500, "0 = unlimited age.")
+		w.number(&b.KeepCount, "Backups to keep per server", 0, 10000, "0 = unlimited count. Setting both limits to zero disables backup expiration.")
+		validate := func(v []string) error { x := operations.DefaultConfig(); x.Backup.Include = v; return x.Validate() }
+		w.list(&b.Include, "Paths to back up", validate, "Volume-relative paths/globs; all includes everything the exclusions leave.")
+		w.list(&b.Exclude, "Paths to leave out", validate, "Patterns match paths, filenames and parent directories. Shared stock files are always left out.")
 	}
-	if c.Operations.Cleanup.Enabled, err = w.boolean("Schedule server demo/log/dump cleanup", c.Operations.Cleanup.Enabled); err != nil {
-		return c, err
-	}
+	w.sectionTitle("Cleanup", "Choose when cleanup runs separately from how old each file category must be.")
+	w.yes(&c.Operations.Cleanup.Enabled, "Enable cleanup")
 	if c.Operations.Cleanup.Enabled {
-		if c.Operations.Cleanup.EveryHours, err = w.number("Cleanup interval hours (0 only on start)", c.Operations.Cleanup.EveryHours, 0, 8760); err != nil {
-			return c, err
+		x := &c.Operations.Cleanup
+		w.number(&x.EveryHours, "Hours between cleanup passes", 0, 8760, "0 disables periodic passes; on-start and manual cleanup remain available.")
+		w.yes(&x.OnStart, "Also clean when a server starts")
+		w.yes(&x.KeepOpen, "Leave files the server still has open", "Deleting an open file does not reclaim its disk space until the descriptor closes.")
+		for i := range x.Rules {
+			r := &x.Rules[i]
+			enabled := r.Enabled == nil || *r.Enabled
+			w.yes(&enabled, r.Name+": enabled", r.Description)
+			if r.Enabled != nil || !enabled {
+				r.Enabled = &enabled
+			}
+			if enabled {
+				w.number(&r.Hours, r.Name+": retention hours", 0, 876000, "Only files older than this are removed; 0 removes eligible files on every pass.")
+			}
 		}
+		w.ui.Help("Custom directories, patterns, recursion and parent-bundle rules are retained in config.json. Existing rules are never replaced by rerunning this wizard.")
 	}
-	if c.Metrics.Enabled, err = w.boolean("Collect resource metrics and enable Prometheus", c.Metrics.Enabled); err != nil {
-		return c, err
-	}
+	w.sectionTitle("Metrics", "Resource usage, Prometheus endpoint and live terminal top.")
+	w.yes(&c.Metrics.Enabled, "Enable metrics")
 	if c.Metrics.Enabled {
-		if c.Metrics.Listen, err = w.ask("Prometheus listener (loopback recommended)", c.Metrics.Listen, func(s string) error { m := c.Metrics; m.Listen = s; return m.Validate() }); err != nil {
-			return c, err
-		}
+		w.text(&c.Metrics.Listen, "Prometheus listener", func(s string) error { x := c.Metrics; x.Listen = s; return x.Validate() }, "127.0.0.1 keeps metrics local; use a public listener only with suitable firewall rules.")
+		w.number(&c.Metrics.SampleSeconds, "Seconds between Docker samples", 1, 60)
 	}
-	if c.Operations.Maintenance.Enabled, err = w.boolean("Schedule optional host maintenance/disk watches", c.Operations.Maintenance.Enabled); err != nil {
-		return c, err
-	}
+	w.sectionTitle("Host maintenance", "Docker and journal housekeeping; dry-run reports intended work. Security upgrades are configured separately.")
+	w.yes(&c.Operations.Maintenance.Enabled, "Enable maintenance")
 	if c.Operations.Maintenance.Enabled {
-		if c.Operations.Maintenance.DryRun, err = w.boolean("Keep host maintenance in dry-run mode", c.Operations.Maintenance.DryRun); err != nil {
-			return c, err
+		m := &c.Operations.Maintenance
+		w.number(&m.EveryHours, "Hours between maintenance passes", 0, 8760, "168 = weekly; 0 = manual only.")
+		w.yes(&m.DryRun, "Keep host maintenance in dry-run mode")
+		w.yes(&m.Images, "Prune dangling Docker images", "Tagged images and Docker volumes are never pruned.")
+		w.yes(&m.BuildCache, "Prune Docker build cache")
+		if m.BuildCache {
+			w.number(&m.BuildCacheHours, "Hours of Docker build cache to retain", 1, 876000)
 		}
-	}
-	if c.SelfUpdate.Enabled, err = w.boolean("Automatically update the node binary", c.SelfUpdate.Enabled); err != nil {
-		return c, err
-	}
-	if c.SelfUpdate.Enabled {
-		if c.SelfUpdate.CheckMinutes, err = w.number("Node update check interval minutes", c.SelfUpdate.CheckMinutes, 1, 10080); err != nil {
-			return c, err
+		w.yes(&m.Journal, "Trim old journal files")
+		if m.Journal {
+			w.number(&m.JournalDays, "Days of journal to keep", 1, 36500)
 		}
+		w.number(&m.DiskWarnPercent, "Alert when free disk drops below this percent", 0, 100, "0 = no disk watch.")
 	}
-	return c, c.Validate()
 }

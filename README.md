@@ -67,7 +67,7 @@ Prefer standalone? Skip step 1. `SOURCE_MODE=auto` installs into the server's ow
 
 SourceMod automatically requires Metamod. Framework upgrades preserve private configs, custom changes and disabled stock plugins. Exact version pins never silently become latest.
 
-The default dev password policy is **one join password per game on each node**. Alternatives are one per server or one across all participating servers on a node. Password generation is opt-in; RCON credentials remain separate.
+The fresh-install password policy offers **one join password per server**, using EFF words and monthly rotation after opt-in. The wizard also supports per-game/node sharing and cron schedules with a timezone. Existing nodes retain their saved per-game/token/hour policy. Password generation is opt-in at both node and server; RCON credentials remain separate.
 
 ```bash
 sudo sourcenode passwords show FULL_SERVER_UUID
@@ -79,7 +79,9 @@ For a dev node sharing one public address, use Docker bridge networking with sep
 
 [Node guide](docs/node.md) · [Server/operations guide](docs/install.md) · [Build and test from source](docs/development.md) · [Implementation status](docs/IMPLEMENTATION.md)
 
-[Node operations and full CLI](docs/operations.md) · [Complete configuration reference](docs/reference/node-config.md). Operational parity changes require a release containing this implementation; existing released binaries retain their original feature set. Live five-game acceptance remains a separate release gate.
+[Node operations and full CLI](docs/operations.md) · [Complete configuration reference](docs/reference/node-config.md) · [Server controls](docs/server-controls.md).
+
+The installer follows the upstream wizard's sections, help, settings review and progress, with EdgeGamers/Source 1 terminal artwork. It exposes file retention, filters, framework locks, maintenance and password scheduling. Operator commands show readable tables; add `--json` for scripts. Install a matched node/image/egg release for new server features; live five-game acceptance remains a separate release gate.
 
 GPL-3.0-or-later. Runtime helpers retain attribution to K4ryuu/CS2-Egg-Go and S2Script contributors; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 

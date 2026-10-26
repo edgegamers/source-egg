@@ -1,6 +1,6 @@
 # Implementation status
 
-The core and reference-style installation flow were merged into `main`. Operational parity implementation is on `codex/full-feature-parity`, based on merged commit `66923fa`. This records delivered code separately from live acceptance and the proposal's additional goals.
+The core, installation flow and operational modules are merged through `7cc3e68`. The upstream-fork parity update builds on that baseline using S2Script commit `8857a5519ac4cb56b26716f6d57f7956f60d3a8e`. This records implemented behavior separately from live acceptance and the proposal's additional goals.
 
 ## Implemented
 
@@ -26,6 +26,13 @@ The core and reference-style installation flow were merged into `main`. Operatio
 - Verified atomic node upgrade/check, optional scheduled self-update, previous-binary rollback on failed update requests and safe uninstall retaining server/shared/private data.
 - Optional EFF-word passwords/calendar-month rotation preserving existing assignments, scopes and fixed-hour/token behavior.
 - Extended wizard, module status/schedules/doctor and complete operator/configuration guides.
+- Upstream-style terminal sections, help, choices, settings review, progress and command reference, with embedded EdgeGamers and Source 1 artwork and plain/narrow fallbacks.
+- Wizard controls for framework cache/pins, backup filters and unlimited age/count, cleanup per-rule ages, maintenance tasks/retention, Discord events/identity, metrics sampling and all password policies.
+- Five-field cron password rotation with IANA zones, DST handling and single overdue catch-up; custom dictionaries, private state path and master enable control. Saved passwords and due dates remain intact.
+- Readable CLI tables and summaries, global `--json` preserving API responses, safe terminal output and consistent server-prefix lookup.
+- Symlink/hardlink/copy VPK delivery, bounded preparation concurrency, node Steam validation, optional automatic game restarts and empty-or-window restart semantics.
+- Standalone startup cleanup, editable console filters/levels, quoted custom startup arguments, opt-in gdbserver and SourceMod stock plugin switches preserving custom files.
+- Fresh-install defaults aligned with the applicable upstream modules, separated from legacy loading defaults so upgrades preserve saved behavior.
 
 ## Verification
 
@@ -33,9 +40,11 @@ Linux tests cover profile changes, Steam arguments, failed install publication, 
 
 Real upstream Metamod 1.12.0.1228 and SourceMod 1.13.0.7478 Linux archives were fetched, validated, cached and deployed in isolated tests. The mount regression was reproduced then verified in an isolated namespace with a distinct filesystem root; reads reach the container target and writes are denied. Final verification results are recorded in the execution plan.
 
-The built image also passed fixture boot with a read-only root, UID 988, writable SteamCMD seed and PTY shutdown. Public Steam build metadata resolved for all five games through the actual SteamCMD client; this is not a retail-game install/client-join test.
+The earlier baseline image passed fixture boot with a read-only root, UID 988, writable SteamCMD seed and PTY shutdown. Public Steam build metadata resolved for all five games through the actual SteamCMD client; this is not a retail-game install/client-join test. Those earlier results do not certify the updated image's new debugging/startup features.
 
 Operational tests cover rooted backups/restores/cleanup, live-state rechecks through a private control socket, transient schedule-state failures, container open-file paths, real prune output accounting, bounded log/crash queues, gzip rollover/orphans, cancellable traversal, credential/terminal sanitization, Prometheus escaping/counters, policy precedence, verified binary swaps/rollback/uninstall and calendar/password persistence. Component reviews and fixes are recorded in the parity execution ledger; final integrated verification is recorded in its plan.
+
+The upstream-fork update passed the complete verification script: Go race tests, vet, formatting, both Linux builds, shell syntax and SteamCMD seed fixtures. Bootstrap fixtures passed separately. An independent review reproduced and rechecked fixes for private password path aliases, disabled-policy cached startup, obsolete relocated stock plugins and the panel readiness marker. The actual wizard transcript was rendered and visually inspected. The updated image smoke and live game/debugger acceptance were not run because Docker access is unavailable on this host. See the [execution ledger](superpowers/plans/2026-10-26-upstream-fork-parity.md).
 
 ## Remaining release work
 
@@ -44,13 +53,13 @@ Operational tests cover rooted backups/restores/cleanup, live-state rechecks thr
 3. Publish and roll out a matched node/image/egg release containing operational parity, then perform live module acceptance on a dev node.
 4. Additional proposal goals beyond the reference benchmark: canary promotion, verified runtime-health rollback and proactive framework-only restart scheduling. Framework updates currently apply at startup.
 
-Workshop acquisition, custom-map caching and the connection guard are excluded. No connected live game server was changed by this implementation. Earlier releases exist; this branch has not published its operational changes.
+Workshop acquisition, custom-map caching and the CS2 connection guard are excluded. No connected live game server was changed by this implementation. Earlier releases exist; this update has not published a new node/image/egg release.
 
 ## Execution decisions
 
-- Preserve approved uncommitted plans in the current checkout on a new implementation branch.
-- Use Go 1.27 and the reference's tested PTY/Linux dependency versions, verified in Docker.
+- Keep implementation isolated in an attached worktree, preserving the original checkout.
+- Use Go 1.27 and the reference's PTY/Linux dependency versions. This update uses a checksum-verified native Go toolchain; Docker access is unavailable on the development host.
 - Require Linux 5.12+ so read-only attributes are applied before shared mounts become visible.
-- Honor strict maintenance windows; a configured maximum delay can override them.
+- Match upstream empty-or-window restarts; unknown player counts wait for a window/deadline instead of being assumed empty.
 - Use explicit 0700/0600 private state permissions and service umask 0022 for public mounted content/socket directories.
 - Retain orphan generation references conservatively; framework retention protects installed/pinned/unknown legacy archives.

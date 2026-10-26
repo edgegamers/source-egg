@@ -1,6 +1,6 @@
 # Feature parity assessment
 
-This is the historical gap assessment before the full-parity implementation. The applicable operations gaps below are implemented on `codex/full-feature-parity`; see [current implementation status](../IMPLEMENTATION.md) and [operations guide](../operations.md). The live-game acceptance boundary still applies.
+This is the historical gap assessment before the operational implementation merged in `7cc3e68`. The subsequent upstream-fork parity update also covers the wizard, server controls and cron password scheduling; see [current implementation status](../IMPLEMENTATION.md) and [operations guide](../operations.md). The live-game acceptance boundary still applies.
 
 Checked October 25, 2026 against S2Script CS2 Egg main at [`8857a551`](https://github.com/s2script/s2script-cs2-egg/tree/8857a5519ac4cb56b26716f6d57f7956f60d3a8e). Source comparison covers the implementation through `18918bb`, subsequently merged into main as `66923fa`.
 

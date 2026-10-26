@@ -19,6 +19,7 @@ import (
 	"github.com/edgegamers/source-egg/internal/metrics"
 	"github.com/edgegamers/source-egg/internal/node"
 	"github.com/edgegamers/source-egg/internal/nodeinstall"
+	"github.com/edgegamers/source-egg/internal/terminalui"
 )
 
 func hasFlag(args []string, name string) bool {
@@ -48,7 +49,7 @@ func confirm(input io.Reader, output io.Writer, action string, yes bool) error {
 	if yes {
 		return nil
 	}
-	fmt.Fprintf(output, "%s? [y/N]: ", action)
+	fmt.Fprintf(output, "%s? [y/N]: ", terminalui.Plain(action))
 	s, e := bufio.NewReader(input).ReadString('\n')
 	if e != nil && s == "" {
 		return errors.New("confirmation required (or pass --yes)")
@@ -62,7 +63,7 @@ func operatorRoute(args []string) (method, path, prompt string, handled bool, er
 	if len(args) == 0 {
 		return
 	}
-	a := withoutFlags(args, "--yes")
+	a := withoutFlags(args, "--yes", "--json")
 	usage := func(s string) (string, string, string, bool, error) {
 		return "", "", "", true, fmt.Errorf("usage: sourcenode %s", s)
 	}
@@ -173,8 +174,15 @@ func operatorRoute(args []string) (method, path, prompt string, handled bool, er
 	}
 	return "", "", "", false, nil
 }
-func extendedCLI(ctx context.Context, c node.Config, args []string) (bool, error) {
+func extendedCLI(ctx context.Context, c node.Config, args []string, jsonOutput bool) (bool, error) {
 	if args[0] == "top" {
+		if jsonOutput {
+			data, err := node.Control(ctx, c, "GET", "/metrics")
+			if err == nil {
+				err = renderResponse(os.Stdout, "metrics", data, true)
+			}
+			return true, err
+		}
 		return true, metrics.Top(ctx, os.Stdin, os.Stdout, func(ctx context.Context) (metrics.Snapshot, error) {
 			ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
@@ -187,50 +195,41 @@ func extendedCLI(ctx context.Context, c node.Config, args []string) (bool, error
 		})
 	}
 	if args[0] == "self-update" || args[0] == "update" && (len(args) == 1 || strings.HasPrefix(args[1], "--")) {
-		return true, selfUpdateCLI(ctx, c, args[1:])
+		return true, selfUpdateCLI(ctx, c, args[1:], jsonOutput)
 	}
 	method, path, prompt, handled, e := operatorRoute(args)
 	if !handled || e != nil {
 		return handled, e
 	}
 	if prompt != "" {
-		if e = confirm(os.Stdin, os.Stdout, prompt, hasFlag(args, "--yes")); e != nil {
+		promptOutput := os.Stdout
+		if jsonOutput {
+			promptOutput = os.Stderr
+		}
+		if e = confirm(os.Stdin, promptOutput, prompt, hasFlag(args, "--yes")); e != nil {
 			return true, e
 		}
 	}
 	b, e := node.Control(ctx, c, method, path)
 	if e == nil {
-		if args[0] == "crash" {
-			fmt.Print(string(b))
-		} else {
-			printJSON(b)
-		}
+		e = renderResponse(os.Stdout, path, b, jsonOutput)
 	}
 	return true, e
 }
-func printJSON(b []byte) {
-	var v any
-	if json.Unmarshal(b, &v) == nil {
-		if formatted, e := json.MarshalIndent(v, "", "  "); e == nil {
-			b = formatted
-		}
-	}
-	fmt.Println(string(b))
-}
-func selfUpdateCLI(ctx context.Context, c node.Config, args []string) error {
+func selfUpdateCLI(ctx context.Context, c node.Config, args []string, jsonOutput bool) error {
 	if os.Geteuid() != 0 {
 		return errors.New("node update requires root")
 	}
 	f := flag.NewFlagSet("self-update", flag.ContinueOnError)
 	check := f.Bool("check", false, "check without replacing binary")
-	channel := f.String("channel", "", "stable or beta")
+	channel := f.String("channel", "", "stable, beta or dev")
 	tag := f.String("release", "", "exact release tag")
 	f.Bool("yes", false, "accepted for unattended commands")
 	if e := f.Parse(args); e != nil {
 		return e
 	}
 	if len(f.Args()) > 0 {
-		return errors.New("usage: sourcenode self-update [--check] [--channel stable|beta] [--release TAG]")
+		return errors.New("usage: sourcenode self-update [--check] [--channel stable|beta|dev] [--release TAG]")
 	}
 	cfg := c.SelfUpdate
 	if cfg.Channel == "" {
@@ -259,6 +258,9 @@ func selfUpdateCLI(ctx context.Context, c node.Config, args []string) error {
 	}
 	candidate, e := m.Check(ctx, version)
 	if errors.Is(e, lifecycle.ErrUpToDate) {
+		if jsonOutput {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "up to date"})
+		}
 		fmt.Println("Node is up to date")
 		return nil
 	}
@@ -266,12 +268,19 @@ func selfUpdateCLI(ctx context.Context, c node.Config, args []string) error {
 		return e
 	}
 	if *check {
-		return json.NewEncoder(os.Stdout).Encode(candidate)
+		data, err := json.Marshal(candidate)
+		if err != nil {
+			return err
+		}
+		return renderResponse(os.Stdout, "self-update", data, jsonOutput)
 	}
 	if e = m.Apply(ctx, candidate); e != nil {
 		return e
 	}
-	fmt.Println("Installed node", candidate.Version, "and requested a service restart")
+	if jsonOutput {
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"version": candidate.Version, "installed": true, "restart_requested": true})
+	}
+	fmt.Println("Installed node", terminalui.Plain(candidate.Version), "and requested a service restart")
 	return nil
 }
 func uninstallCLI(ctx context.Context, configPath string, args []string) error {

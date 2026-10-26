@@ -99,6 +99,13 @@ func stockFile(name string) bool {
 	return strings.HasPrefix(name, "addons/sourcemod/plugins/") || strings.HasPrefix(name, "addons/sourcemod/extensions/")
 }
 func rootDigest(root *os.Root, path string) (string, error) {
+	st, e := root.Lstat(path)
+	if e != nil {
+		return "", e
+	}
+	if !st.Mode().IsRegular() {
+		return "", errors.New("framework file must be a regular file")
+	}
 	f, e := root.Open(path)
 	if e != nil {
 		return "", e
@@ -112,12 +119,19 @@ func rootDigest(root *os.Root, path string) (string, error) {
 }
 
 // Deploy operates only before the game starts. Seed private/default files once.
-func Deploy(archive, volume, gameDir, name, version string) error {
+func Deploy(archive, volume, gameDir, name, version string, pluginOptions ...map[string]string) error {
 	if name != "metamod" && name != "sourcemod" {
 		return errors.New("unsupported framework")
 	}
 	if !filepath.IsLocal(gameDir) || strings.ContainsAny(gameDir, "/\\") {
 		return errors.New("invalid game directory")
+	}
+	var policies map[string]string
+	if len(pluginOptions) > 0 && name == "sourcemod" {
+		policies = pluginOptions[0]
+	}
+	if e := ValidatePluginOptions(policies); e != nil {
+		return e
 	}
 	temp, e := os.MkdirTemp("", "source-framework-")
 	if e != nil {
@@ -160,10 +174,24 @@ func Deploy(archive, volume, gameDir, name, version string) error {
 				return e
 			}
 		} else if stockFile(rel) {
+			canonical := target
 			previous, owned := old.Stock[target]
+			policy := ""
+			if alternate := alternatePluginPath(target); alternate != "" {
+				if !owned {
+					previous, owned = old.Stock[alternate]
+				}
+				policy = policies[strings.TrimSuffix(filepath.Base(target), ".smx")]
+				target, e = pluginTarget(root, target, previous, owned, policy)
+				if e != nil {
+					return e
+				}
+				present[target] = true
+			}
 			current, err := rootDigest(root, target)
-			if owned && (os.IsNotExist(err) || (err == nil && current != previous)) {
-				next.Stock[target] = previous // Keep manual edits and disabled/deleted defaults.
+			explicit := policy == "0" || policy == "1"
+			if owned && ((!explicit && os.IsNotExist(err)) || (err == nil && current != previous)) {
+				next.Stock[canonical] = previous // Keep manual edits and disabled/deleted defaults.
 				return nil
 			}
 			if err != nil && !os.IsNotExist(err) {
@@ -176,7 +204,7 @@ func Deploy(archive, volume, gameDir, name, version string) error {
 			if err != nil {
 				return err
 			}
-			next.Stock[target] = sum
+			next.Stock[canonical] = sum
 		} else {
 			next.Files = append(next.Files, target)
 		}
@@ -204,9 +232,19 @@ func Deploy(archive, volume, gameDir, name, version string) error {
 		if !filepath.IsLocal(path) || !strings.HasPrefix(path, gameDir+"/") || !stockFile(strings.TrimPrefix(path, gameDir+"/")) {
 			return errors.New("invalid stock-file receipt")
 		}
-		if !present[path] {
-			if current, err := rootDigest(root, path); err == nil && current == sum {
-				if err = root.Remove(path); err != nil {
+		candidates := []string{path}
+		if alternate := alternatePluginPath(path); alternate != "" {
+			candidates = append(candidates, alternate)
+		}
+		for _, candidate := range candidates {
+			if present[candidate] {
+				continue
+			}
+			if err := stockPathNoLinks(root, candidate); err != nil {
+				return err
+			}
+			if current, err := rootDigest(root, candidate); err == nil && current == sum {
+				if err = root.Remove(candidate); err != nil {
 					return err
 				}
 			}

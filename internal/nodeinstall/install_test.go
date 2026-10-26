@@ -24,8 +24,13 @@ func defaults(root string) node.Config {
 func TestWizardConfiguresFeaturesScopesAndSelectedGames(t *testing.T) {
 	base := defaults(t.TempDir())
 	var out bytes.Buffer
-	answers := "\n\nCS:S,TF2\n\n\nwindow\n01:00-02:00\n30\n60\n20\nnode\n24\n\n\n" + strings.Repeat("\n", 40)
-	got, err := Configure(base, strings.NewReader(answers), &out)
+	answers := &promptAnswers{out: &out, values: map[string]string{
+		"Games to prepare now": "CS:S,TF2", "Game-update restart policy": "window",
+		"Restart window in node local time": "01:00-02:00", "Maximum restart delay minutes": "30",
+		"Restart countdown seconds": "60", "Game update check interval minutes": "20",
+		"Dev join-password sharing": "node", "Password rotation schedule": "daily",
+	}}
+	got, err := Configure(base, answers, &out)
 	if err != nil {
 		t.Fatal(err)
 	}

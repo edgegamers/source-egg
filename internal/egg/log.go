@@ -1,9 +1,40 @@
 package egg
 
 import (
+	"errors"
 	"fmt"
 	"os"
 )
+
+func openServerLog(dir string) (*RotatingLog, error) {
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	if err = root.MkdirAll(".source/logs", 0700); err != nil {
+		return nil, err
+	}
+	for _, name := range []string{".source", ".source/logs"} {
+		st, err := root.Lstat(name)
+		if err != nil {
+			return nil, err
+		}
+		if !st.IsDir() || st.Mode()&os.ModeSymlink != 0 {
+			return nil, errors.New("server log directory must not be a symlink")
+		}
+	}
+	logs, err := root.OpenRoot(".source/logs")
+	if err != nil {
+		return nil, err
+	}
+	l := &RotatingLog{root: logs, max: 32 << 20, keep: 3}
+	if err = l.open(); err != nil {
+		logs.Close()
+		return nil, err
+	}
+	return l, nil
+}
 
 type RotatingLog struct {
 	root      *os.Root
