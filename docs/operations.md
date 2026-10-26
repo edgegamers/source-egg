@@ -1,12 +1,14 @@
 # Node operations
 
-These modules implement the applicable S2Script node operations for all five Source games. Enable them in `sudo sourcenode install`, or edit `/etc/sourcenode/config.json` and restart the service. Existing configurations preserve their behavior: scheduled backups, cleanup, metrics, host maintenance and automatic node upgrades are opt-in. Host maintenance starts in dry-run mode. Crash evidence remains enabled; node console archiving is optional.
+These modules implement the applicable S2Script node operations for all five Source games. Configure them in `sudo sourcenode install`, or edit `/etc/sourcenode/config.json` and restart the service. Fresh installs enable the operational modules; host maintenance starts in dry-run mode. Existing configurations retain saved enable switches and the legacy defaults for omitted settings.
 
-The changes on `codex/full-feature-parity` require a release containing this implementation. An older installed node/image does not gain these features by changing its config.
+Install a matched node/image/egg release to use new server capabilities. An older installed node/image does not gain features by changing its config.
 
 ## Commands
 
 Server arguments accept a full UUID or an unambiguous prefix. A prefix matching multiple servers is refused. Archived logs/crashes for a removed server can be selected with its full UUID. The node verifies current Docker identity before file operations; containers cannot request privileged operations.
+
+Commands display readable sections and tables by default. Add `--json` anywhere for the original machine-readable response, for example `sudo sourcenode status --json` or `sudo sourcenode --json backups`. This preserves numeric precision and is the compatible mode for scripts that previously parsed the default JSON. Confirmation prompts use stderr in JSON mode.
 
 | Command | Action |
 |---|---|
@@ -44,6 +46,8 @@ Framework pins and game-generation pins are separate. Existing `pin SERVER GENER
 
 Nightly backups cover running servers at the configured node-local hour (default 05:00). The default retains seven archives and fourteen days, with a 1 GiB free-space reserve. Archives live outside server volumes, beneath the node state directory by default. Failed/partial archives are not published.
 
+Age and count limits are independent: `keep_days: 0` removes the age limit, `keep_count: 0` removes the count limit, and both zero retain all backups. The wizard exposes both limits and the include/exclude lists.
+
 Private configs, plugins and their data are included. Base VPKs, demos, Steam trees, symlinks, node/Steam credential receipts and byte-identical immutable stock files are excluded. Custom/event content and mutable configs are preserved even if their file size matches stock. `include`/`exclude` patterns are volume-relative paths or globs; `all` includes everything except protected trees and exclusions. Each archive's private metadata records the server and game identity.
 
 Traversal uses bounded directory chunks, a depth limit of 32 and an entry budget, counting excluded entries as work. Backup `max_files` bounds traversal as well as selected files; cleanup/inventory use a 100,000-entry budget. Reaching a bound fails explicitly instead of scanning indefinitely. Privileged JSON receipts must be regular files under their pinned root, without symlinks, and at most 16 MiB.
@@ -53,6 +57,8 @@ Restore refuses a running server and rechecks its identity/stopped state during 
 ## Cleanup and host maintenance
 
 Default cleanup rules remove old demos after seven days, named engine/SourceMod error logs after fourteen days, dumps after seven days and core files after one day. Rules support basename globs, relative directories, recursion, age, enable switches and bounded parent-bundle deletion. The node never follows volume symlinks and can skip files held open by the container. Current configs/plugins/private node receipts and event maps are not blanket cleanup targets.
+
+The wizard edits each saved rule's switch and retention hours, the periodic interval, startup cleanup and open-file protection. Custom paths, patterns and recursion remain intact. An interval of zero disables periodic passes; a rule age of zero makes all matching eligible files old enough. Node-disabled or standalone servers can opt into [server cleanup](server-controls.md) at startup.
 
 Host maintenance operates separately from server cleanup. It can remove dangling images, aged Docker build cache and old journal entries. It never invokes `docker image prune -a`, prunes Docker volumes, deletes tagged rollback images or reboots the node. Dry-run passes do not count as freed bytes. Disk-low notices are throttled daily; pending-reboot notices deduplicate until the condition clears. Unattended-upgrade setup is a separate explicit operator command on Debian/Ubuntu.
 
@@ -70,6 +76,6 @@ The Prometheus endpoint defaults to `http://127.0.0.1:9151/metrics`. Explicitly 
 
 Manual self-update supports `--channel stable|beta`, `--release vX.Y.Z` and `--check`. Scheduled self-update is opt-in, follows the installed node channel unless explicitly overridden, verifies release checksums and atomically retains a previous binary. A failed replacement/restart request restores the old binary. The service restart is queued without blocking its own daemon; update notices are emitted by the matching new version after startup. This does not provide runtime-health rollback. Upgrade the server image and egg export separately when a release changes their capabilities.
 
-Password compatibility options are `password_format: "eff"`, `password_words: 3` and `password_calendar_months: 1`. Calendar intervals clamp month-end dates; a positive month interval overrides fixed-hour rotation. Existing assignments and due dates remain valid until their next normal rotation. Token/fixed-hour behavior and per-game default scope remain unchanged unless selected otherwise.
+Password controls include a master enable switch, token/EFF format, dictionary path, private state directory and scope. Five-field cron with an explicit timezone is available alongside elapsed hours and calendar months; see [password schedules](reference/node-config.md#password-schedules). Existing assignments retain their saved due dates, including assignments without expiry. Fresh installs offer monthly EFF phrases per server after opt-in; legacy per-game token/hour settings are retained on upgrades.
 
 [Configuration reference](reference/node-config.md) · [Server operations](install.md) · [Node installation](node.md)

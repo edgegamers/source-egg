@@ -112,12 +112,20 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 		}
 	}
 	var response node.Response
+	legacyNode := false
 	if e.Node != nil {
 		e.progress("Connected to node; preparing shared files, framework cache and password policy...")
-		response, err = e.call(ctx, node.Request{Action: "prepare", Identity: id})
+		response, err = e.call(ctx, node.Request{Action: "prepare", Identity: id, HostDelivery: true})
+		if errors.Is(err, node.ErrProtocolMismatch) {
+			legacyNode = true
+			response, err = e.call(ctx, node.Request{Action: "prepare", Identity: id})
+		}
 		if err != nil {
 			return result, err
 		}
+	}
+	if response.Delivered && !response.Managed {
+		return result, errors.New("node reported delivered files without managed identity")
 	}
 	if (c.Mode == "managed" || wasManaged) && !response.Managed {
 		return result, errors.New("managed files require a ready node and read-only mount; refusing local SteamCMD fallback")
@@ -129,9 +137,14 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 		if g.Identity != id {
 			return result, errors.New("node returned wrong game generation")
 		}
+		if !filepath.IsLocal(g.Key) || filepath.Clean(g.Key) != g.Key || strings.Count(g.Key, "/") != 4 || !strings.HasPrefix(g.Key, "generations/"+id.Key()+"/") {
+			return result, errors.New("node returned invalid game generation path")
+		}
 		g.Path = filepath.Join(node.SharedMount, g.Key)
-		if err = content.Deploy(g, c.Dir, node.SharedMount); err != nil {
-			return result, err
+		if !response.Delivered {
+			if err = content.Deploy(g, c.Dir, node.SharedMount); err != nil {
+				return result, err
+			}
 		}
 		result.Generation = g.Key
 	} else {
@@ -150,13 +163,24 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 		}
 	}
 	if c.GeneratePassword {
-		if response.Password == nil || response.Password.Password == "" {
-			return result, errors.New("generated password requested but no node assignment available")
-		}
-		result.Assignment = response.Password
-		result.Password = response.Password.Password
-		if err = fsx.JSON(root, ".source/password.json", response.Password, 0600); err != nil {
-			return result, err
+		if response.PasswordDisabled {
+			if response.Password != nil {
+				return result, errors.New("node returned conflicting disabled password policy")
+			}
+			result.Assignment, err = readCachedPassword(root)
+			if err != nil {
+				return result, err
+			}
+			result.Password = result.Assignment.Password
+		} else {
+			if response.Password == nil || response.Password.Password == "" {
+				return result, errors.New("generated password requested but no node assignment available")
+			}
+			result.Assignment = response.Password
+			result.Password = response.Password.Password
+			if err = fsx.JSON(root, ".source/password.json", response.Password, 0600); err != nil {
+				return result, err
+			}
 		}
 	} else {
 		result.Password = c.Password
@@ -180,7 +204,12 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 			}
 		}
 	}
-	result.Args, err = p.Command(game.Launch{Port: c.Port, MaxPlayers: c.MaxPlayers, Map: c.Map, Hostname: c.Hostname, Password: result.Password, RCON: c.RCON, GSLT: c.GSLT})
+	// A legacy node cannot advertise cleanup ownership. Avoid concurrent
+	// cleanup conservatively until its operator upgrades the node.
+	if err = e.cleanup(ctx, root, response.CleanupManaged || legacyNode); err != nil {
+		return result, err
+	}
+	result.Args, err = p.Command(game.Launch{Port: c.Port, MaxPlayers: c.MaxPlayers, Map: c.Map, Hostname: c.Hostname, Password: result.Password, RCON: c.RCON, GSLT: c.GSLT, CustomParams: c.CustomParams})
 	if err != nil {
 		return result, err
 	}
@@ -201,7 +230,7 @@ func (e *Egg) frameworks(ctx context.Context, p game.Profile, response node.Resp
 		if f.Package.Name != "metamod" && f.Package.Name != "sourcemod" {
 			return errors.New("unknown cached framework")
 		}
-		if err := addons.Deploy(filepath.Join(node.CacheMount, f.Archive), e.Config.Dir, p.Dir, f.Package.Name, f.Package.Version); err != nil {
+		if err := addons.Deploy(filepath.Join(node.CacheMount, f.Archive), e.Config.Dir, p.Dir, f.Package.Name, f.Package.Version, e.Config.SourceModPlugins); err != nil {
 			return err
 		}
 		installed[f.Package.Name] = true
@@ -228,7 +257,7 @@ func (e *Egg) frameworks(ctx context.Context, p game.Profile, response node.Resp
 		if err != nil {
 			return err
 		}
-		if err = addons.Deploy(archive, e.Config.Dir, p.Dir, name, pkg.Version); err != nil {
+		if err = addons.Deploy(archive, e.Config.Dir, p.Dir, name, pkg.Version, e.Config.SourceModPlugins); err != nil {
 			return err
 		}
 	}

@@ -79,7 +79,7 @@ func (c Config) Validate() error {
 	if e := storagePath(b.Dir); e != nil {
 		return e
 	}
-	if !filepath.IsAbs(b.Dir) || b.Hour < 0 || b.Hour > 23 || b.KeepDays < 0 || b.KeepCount < 0 || (b.KeepDays == 0 && b.KeepCount == 0) || b.MinFreeBytes < 0 || b.MaxBytes <= 0 || b.MaxFiles <= 0 || b.MaxFiles > 1000000 {
+	if !filepath.IsAbs(b.Dir) || b.Hour < 0 || b.Hour > 23 || b.KeepDays < 0 || b.KeepCount < 0 || b.MinFreeBytes < 0 || b.MaxBytes <= 0 || b.MaxFiles <= 0 || b.MaxFiles > 1000000 {
 		return errors.New("invalid backup path, retention, schedule or bounds")
 	}
 	for _, p := range append(append([]string{}, b.Include...), b.Exclude...) {

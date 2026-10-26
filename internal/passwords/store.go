@@ -21,6 +21,7 @@ type Store struct {
 	mu      sync.Mutex
 	dir     string
 	options Options
+	words   []string
 	records map[string]Assignment
 }
 
@@ -53,13 +54,17 @@ func OpenWithOptions(dir string, options Options) (*Store, error) {
 	if e := options.Validate(); e != nil {
 		return nil, e
 	}
+	words, e := options.loadWords()
+	if e != nil {
+		return nil, e
+	}
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		return nil, e
 	}
 	if e := os.Chmod(dir, 0700); e != nil {
 		return nil, e
 	}
-	s := &Store{dir: dir, options: options, records: map[string]Assignment{}}
+	s := &Store{dir: dir, options: options, words: words, records: map[string]Assignment{}}
 	r, e := os.OpenRoot(dir)
 	if e != nil {
 		return nil, e
@@ -85,18 +90,14 @@ func (s *Store) Get(scope, server, title string, now time.Time) (Assignment, err
 	if ok && (a.NextAt.IsZero() || now.Before(a.NextAt)) {
 		return a, nil
 	}
-	password, e := s.options.generate()
+	password, e := s.options.generate(s.words)
 	if e != nil {
 		return a, e
 	}
 	next := Assignment{Password: password, Revision: fsx.Token(), GeneratedAt: now.UTC()}
-	if s.options.CalendarMonths > 0 {
-		next.NextAt, e = NextCalendarMonth(now, s.options.CalendarMonths)
-		if e != nil {
-			return a, e
-		}
-	} else if s.options.Interval > 0 {
-		next.NextAt = now.Add(s.options.Interval).UTC()
+	next.NextAt, e = s.options.Next(now)
+	if e != nil {
+		return a, e
 	}
 	// Publish to memory only after durable state replacement succeeds.
 	records := make(map[string]Assignment, len(s.records)+1)

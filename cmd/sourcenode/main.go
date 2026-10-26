@@ -14,24 +14,36 @@ import (
 	"github.com/edgegamers/source-egg/internal/fsx"
 	"github.com/edgegamers/source-egg/internal/node"
 	"github.com/edgegamers/source-egg/internal/nodeinstall"
+	"github.com/edgegamers/source-egg/internal/terminalui"
 )
 
 var version = "dev"
 
 func main() {
 	if e := run(); e != nil {
-		fmt.Fprintln(os.Stderr, "sourcenode:", e)
+		fmt.Fprintln(os.Stderr, "sourcenode:", terminalui.Plain(e.Error()))
 		os.Exit(1)
 	}
 }
 func run() error {
-	path := flag.String("config", "/etc/sourcenode/config.json", "node configuration")
-	flag.Parse()
-	args := flag.Args()
-	if len(args) == 0 {
-		return fmt.Errorf("usage: sourcenode [-config path] install [--yes] [--channel stable|beta]|init|serve|status|doctor|passwords show UUID|update GAME [BRANCH]|history GAME|pin UUID GENERATION|rollback GAME GENERATION|prune|version")
+	options, err := parseCLIArgs(os.Args[1:])
+	if err != nil {
+		return err
 	}
+	path := &options.Config
+	args := options.Args
+	if options.Help {
+		fmt.Fprint(os.Stdout, commandUsage)
+		return nil
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("%s", commandUsage)
+	}
+
 	if args[0] == "version" {
+		if options.JSON {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"version": version})
+		}
 		fmt.Println(version)
 		return nil
 	}
@@ -55,7 +67,7 @@ func run() error {
 		}
 		options := flag.NewFlagSet("install", flag.ContinueOnError)
 		yes := options.Bool("yes", false, "keep existing settings or install defaults without prompts")
-		channel := options.String("channel", "", "stable or beta release channel")
+		channel := options.String("channel", "", "stable, beta or dev release channel")
 		if err := options.Parse(args[1:]); err != nil {
 			return err
 		}
@@ -77,7 +89,7 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if handled, err := extendedCLI(ctx, config, args); handled {
+	if handled, err := extendedCLI(ctx, config, args, options.JSON); handled {
 		return err
 	}
 	switch args[0] {
@@ -90,8 +102,7 @@ func run() error {
 		return d.Run(ctx)
 	case "doctor":
 		if data, err := node.Control(ctx, config, "GET", "/doctor"); err == nil {
-			printJSON(data)
-			return nil
+			return renderResponse(os.Stdout, "doctor", data, options.JSON)
 		}
 		if _, e := os.Stat(config.SteamCMD); e != nil {
 			return e
@@ -103,16 +114,16 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		fmt.Println("Docker, SteamCMD path, and Wings configuration available. Use live-client acceptance before production.")
+		message := "Docker, SteamCMD path, and Wings configuration available. Use live-client acceptance before production."
+		if options.JSON {
+			return json.NewEncoder(os.Stdout).Encode(map[string]string{"status": message})
+		}
+		fmt.Println(message)
 		return nil
 	case "status":
 		data, e := node.Control(ctx, config, "GET", "/status")
 		if e == nil {
-			var v any
-			if json.Unmarshal(data, &v) == nil {
-				data, _ = json.MarshalIndent(v, "", "  ")
-			}
-			fmt.Println(string(data))
+			return renderResponse(os.Stdout, "status", data, options.JSON)
 		}
 		return e
 	case "history":
@@ -125,20 +136,24 @@ func run() error {
 		}
 		data, e := node.Control(ctx, config, "GET", "/history?game="+url.QueryEscape(args[1])+"&branch="+url.QueryEscape(branch))
 		if e == nil {
-			fmt.Println(string(data))
+			return renderResponse(os.Stdout, "history", data, options.JSON)
 		}
 		return e
 	case "pin", "unpin":
 		if (args[0] == "pin" && len(args) != 3) || (args[0] == "unpin" && len(args) != 2) {
 			return fmt.Errorf("usage: sourcenode pin UUID GENERATION | unpin UUID")
 		}
+		server, e := resolveServerID(ctx, config, args[1])
+		if e != nil {
+			return e
+		}
 		generation := ""
 		if args[0] == "pin" {
 			generation = args[2]
 		}
-		data, e := node.Control(ctx, config, "POST", "/pin?server="+url.QueryEscape(args[1])+"&generation="+url.QueryEscape(generation))
+		data, e := node.Control(ctx, config, "POST", "/pin?server="+url.QueryEscape(server)+"&generation="+url.QueryEscape(generation))
 		if e == nil {
-			fmt.Print(string(data))
+			return renderResponse(os.Stdout, "pin", data, options.JSON)
 		}
 		return e
 	case "rollback", "unpin-game":
@@ -157,16 +172,20 @@ func run() error {
 		}
 		data, e := node.Control(ctx, config, "POST", "/rollback?game="+url.QueryEscape(args[1])+"&branch="+url.QueryEscape(branch)+"&generation="+url.QueryEscape(generation))
 		if e == nil {
-			fmt.Print(string(data))
+			return renderResponse(os.Stdout, "rollback", data, options.JSON)
 		}
 		return e
 	case "passwords":
 		if len(args) != 3 || args[1] != "show" {
 			return fmt.Errorf("usage: sourcenode passwords show UUID")
 		}
-		data, e := node.Control(ctx, config, "GET", "/password?server="+url.QueryEscape(args[2]))
+		server, e := resolveServerID(ctx, config, args[2])
+		if e != nil {
+			return e
+		}
+		data, e := node.Control(ctx, config, "GET", "/password?server="+url.QueryEscape(server))
 		if e == nil {
-			fmt.Println(string(data))
+			return renderResponse(os.Stdout, "password", data, options.JSON)
 		}
 		return e
 	case "update":
@@ -179,15 +198,23 @@ func run() error {
 		}
 		data, e := node.Control(ctx, config, "POST", "/update?game="+url.QueryEscape(args[1])+"&branch="+url.QueryEscape(branch))
 		if e == nil {
-			fmt.Println(string(data))
+			return renderResponse(os.Stdout, "update", data, options.JSON)
 		}
 		return e
 	case "prune":
 		data, e := node.Control(ctx, config, "POST", "/prune")
 		if e == nil {
-			fmt.Print(string(data))
+			return renderResponse(os.Stdout, "prune", data, options.JSON)
 		}
 		return e
 	}
 	return fmt.Errorf("unknown command %q", args[0])
+}
+
+func resolveServerID(ctx context.Context, config node.Config, selector string) (string, error) {
+	data, err := node.Control(ctx, config, "GET", "/status")
+	if err != nil {
+		return "", err
+	}
+	return selectServerID(data, selector)
 }

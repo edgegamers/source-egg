@@ -20,6 +20,8 @@ bash scripts/test-install-node.sh
 
 Operational package tests inject clocks, HTTP and command execution and use private temporary volumes. They do not restore a real server, prune Docker state, write apt configuration or restart host services. Full Linux race tests include observability rollover/recovery, root confinement and safe update/uninstall behavior. The EFF dictionary is embedded with attribution and pinned LF bytes.
 
+Parity regressions cover cron/DST, saved password dates, fresh-versus-legacy config, wizard cancellation/pin preservation, CLI JSON and terminal safety, delivery methods, plugin switches, custom argv, log filtering and startup cleanup. Regenerate the embedded terminal branding with `python3 scripts/generate-terminal-art.py` (Pillow required only for regeneration). The generated Go source needs no runtime image dependency.
+
 Optional external integration proofs:
 
 ```bash

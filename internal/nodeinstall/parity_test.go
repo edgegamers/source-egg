@@ -2,7 +2,6 @@ package nodeinstall
 
 import (
 	"bytes"
-	"strings"
 	"testing"
 )
 
@@ -11,19 +10,18 @@ func TestWizardEnablesOperationalModulesAndCalendarPasswords(t *testing.T) {
 	c.Shared = false
 	c.FrameworkCache = false
 	c.Observability.Crashes.Enabled = false
-	answers := strings.Join([]string{
-		"no", "no", "empty", "60", "60", "30", "game", "168", "", "",
-		"eff", "6", "1",
-		"yes", "", "7",
-		"yes", "", "14", "5",
-		"yes", "", "3", "7", "4",
-		"yes", "12",
-		"yes", "127.0.0.1:9152",
-		"yes", "yes",
-		"yes", "60",
-	}, "\n") + "\n"
 	var out bytes.Buffer
-	got, e := Configure(c, strings.NewReader(answers), &out)
+	answers := &promptAnswers{out: &out, values: map[string]string{
+		"Join-password format": "eff", "Words per join-password phrase": "6", "Password rotation schedule": "monthly",
+		"Archive server console logs on this node": "yes", "Console archive retention days": "7",
+		"Collect crash bundles and nearby evidence": "yes", "Crash bundle retention days": "14", "Crash bundles retained per server": "5",
+		"Enable backups": "yes", "Hour of the daily backup run": "3", "Days to keep a backup": "7", "Backups to keep per server": "4",
+		"Enable cleanup": "yes", "Hours between cleanup passes": "12",
+		"Enable metrics": "yes", "Prometheus listener": "127.0.0.1:9152",
+		"Enable maintenance": "yes", "Keep host maintenance in dry-run mode": "yes",
+		"Self-update automatically": "yes", "Minutes between node update checks": "60",
+	}}
+	got, e := Configure(c, answers, &out)
 	if e != nil {
 		t.Fatal(e, out.String())
 	}

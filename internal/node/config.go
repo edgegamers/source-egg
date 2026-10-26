@@ -23,6 +23,15 @@ type RestartPolicy struct {
 	WarnSeconds     int    `json:"warn_seconds"`
 }
 type Config struct {
+	PasswordEnabled         bool                 `json:"password_enabled"`
+	PasswordDir             string               `json:"password_dir,omitempty"`
+	PasswordWordlist        string               `json:"password_wordlist,omitempty"`
+	PasswordCron            string               `json:"password_cron,omitempty"`
+	PasswordTimezone        string               `json:"password_timezone"`
+	PushMethod              string               `json:"push_method"`
+	MaxWorkers              int                  `json:"max_workers"`
+	AutoRestart             bool                 `json:"auto_restart"`
+	SteamValidate           bool                 `json:"steam_validate"`
 	Operations              operations.Config    `json:"operations"`
 	Observability           observability.Config `json:"observability"`
 	SelfUpdate              lifecycle.Config     `json:"self_update"`
@@ -59,9 +68,34 @@ func DefaultConfig() Config {
 	c.Observability.Alerts.Enabled = true
 	c.Observability.Crashes.Enabled = true
 	c.SelfUpdate.Channel = ""
+	c.PasswordEnabled = true // Preserve enrolled servers when loading legacy files.
+	c.PasswordTimezone = "UTC"
+	c.PushMethod, c.MaxWorkers, c.AutoRestart = "symlink", 8, true
+	return c
+}
+
+// FreshConfig offers upstream defaults only for a new installation. LoadConfig
+// deliberately starts with legacy defaults so upgrades do not enable new work.
+func FreshConfig() Config {
+	c := DefaultConfig()
+	c.Operations.Backup.Enabled = true
+	c.Operations.Cleanup.Enabled = true
+	c.Operations.Maintenance.Enabled = true
+	c.Metrics.Enabled, c.Metrics.SampleSeconds = true, 10
+	c.SelfUpdate.Enabled, c.SelfUpdate.CheckMinutes = true, 1440
+	c.Observability.Crashes.KeepCount = 20
+	c.Observability.Logs.Enabled = true
+	c.Observability.Alerts.Name, _ = os.Hostname()
+	c.PasswordEnabled, c.PasswordFormat, c.PasswordScope = false, "eff", "server"
+	c.PasswordIntervalHours, c.PasswordMonths = 0, 1
+	c.Restart = RestartPolicy{Mode: "immediate", Window: "04:00-06:00", MaxDelayMinutes: 720, WarnSeconds: 300}
+	c.CheckMinutes = 1
 	return c
 }
 func (c Config) Validate() error {
+	if err := c.validateDelivery(); err != nil {
+		return err
+	}
 	for _, private := range c.PrivateDirectories() {
 		private = filepath.Clean(private)
 		if !filepath.IsAbs(private) {
@@ -77,6 +111,9 @@ func (c Config) Validate() error {
 				return errors.New("private module storage must be outside public shared/cache mounts")
 			}
 		}
+	}
+	if e := c.validatePasswordDirectory(); e != nil {
+		return e
 	}
 	if e := c.effectiveObservability().Validate(); e != nil {
 		return e
@@ -96,8 +133,8 @@ func (c Config) Validate() error {
 	if c.FrameworkRefreshMinutes < 1 || c.FrameworkKeepDays < 0 {
 		return errors.New("invalid framework refresh/retention")
 	}
-	if c.NodeChannel != "stable" && c.NodeChannel != "beta" {
-		return errors.New("node_channel must be stable or beta")
+	if c.NodeChannel != "stable" && c.NodeChannel != "beta" && c.NodeChannel != "dev" {
+		return errors.New("node_channel must be stable, beta or dev")
 	}
 	for _, key := range c.PrefetchGames {
 		if _, err := game.Lookup(key); err != nil {
@@ -157,10 +194,13 @@ func parseWindow(s string) (int, int, error) {
 	if e != nil {
 		return 0, 0, e
 	}
+	if a.Equal(b) {
+		return 0, 0, errors.New("restart window must not be empty")
+	}
 	return a.Hour()*60 + a.Minute(), b.Hour()*60 + b.Minute(), nil
 }
 func Due(p RestartPolicy, since, now time.Time, players int) bool {
-	if p.Mode == "immediate" || (p.Mode == "empty" && players == 0) {
+	if p.Mode == "immediate" || ((p.Mode == "empty" || p.Mode == "window") && players == 0) {
 		return true
 	}
 	if p.MaxDelayMinutes > 0 && now.Sub(since) >= time.Duration(p.MaxDelayMinutes)*time.Minute {

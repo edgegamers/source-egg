@@ -3,10 +3,8 @@ package egg
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -15,13 +13,20 @@ import (
 	"github.com/edgegamers/source-egg/internal/supervisor"
 )
 
+// Keep this in sync with config.startup.done in the panel egg export.
+const panelReadyLine = "SourceEgg | Ready"
+
 // Run forwards the panel console through a PTY and stops srcds gracefully.
 func (e *Egg) Run(ctx context.Context) error {
 	c := e.Config
-	if err := os.MkdirAll(filepath.Join(c.Dir, ".source/logs"), 0700); err != nil {
+	if err := os.MkdirAll(c.Dir, 0700); err != nil {
 		return err
 	}
-	logfile, err := OpenLog(filepath.Join(c.Dir, ".source/logs"), 32<<20, 3)
+	console, err := e.consoleSettings()
+	if err != nil {
+		return err
+	}
+	logfile, err := openServerLog(c.Dir)
 	if err != nil {
 		return err
 	}
@@ -34,7 +39,10 @@ func (e *Egg) Run(ctx context.Context) error {
 		output.Lock()
 		defer output.Unlock()
 		masked := Mask(s, secrets)
-		fmt.Fprintln(io.MultiWriter(os.Stdout, logfile), masked)
+		fmt.Fprintln(logfile, masked)
+		if visible, show := console.display(masked); show {
+			fmt.Fprintln(os.Stdout, visible)
+		}
 		if delivery != nil {
 			delivery.offer(masked)
 		}
@@ -69,8 +77,10 @@ func (e *Egg) Run(ctx context.Context) error {
 			delivery.offer(old)
 		}
 	}
-	cmd := exec.Command(prepared.Args[0], prepared.Args[1:]...)
-	cmd.Dir = c.Dir
+	cmd, err := e.command(prepared)
+	if err != nil {
+		return err
+	}
 	server := &supervisor.Server{Cmd: cmd, Stdin: os.Stdin, Line: line, StopCommand: "quit", Grace: 30 * time.Second, Idle: 15 * time.Second}
 	runctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -126,7 +136,7 @@ func (e *Egg) watch(ctx context.Context, server *supervisor.Server, p Prepared, 
 						_ = server.Send("sm version")
 					}
 					checksSent = true
-					line("SourceEgg | Ready")
+					line(panelReadyLine)
 				}
 			}
 			if e.Node == nil {

@@ -280,7 +280,7 @@ func (d *Daemon) moduleStatus() any {
 	d.mu.Lock()
 	last := d.lastNodeUpdate
 	d.mu.Unlock()
-	return map[string]any{"operations": st, "next_scheduled": next, "maintenance_dry_run": cfg.Maintenance.DryRun, "observability": d.Observation.Status(), "metrics_enabled": d.Config.Metrics.Enabled, "self_update_enabled": d.Config.SelfUpdate.Enabled, "last_node_update": last, "framework_cache": d.Config.FrameworkCache, "version": d.Version, "channel": d.Config.NodeChannel}
+	return map[string]any{"operations": st, "next_scheduled": next, "maintenance_dry_run": cfg.Maintenance.DryRun, "observability": d.Observation.Status(), "metrics_enabled": d.Config.Metrics.Enabled, "password_enabled": d.Config.PasswordEnabled, "self_update_enabled": d.Config.SelfUpdate.Enabled, "last_node_update": last, "framework_cache": d.Config.FrameworkCache, "version": d.Version, "channel": d.Config.NodeChannel}
 }
 func (d *Daemon) doctor(ctx context.Context) any {
 	checks := map[string]any{}
