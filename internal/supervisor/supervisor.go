@@ -26,8 +26,12 @@ import (
 type Server struct {
 	Cmd   *exec.Cmd
 	Stdin *os.File // the panel's console; nil = none
-	// OnInput sees each line the operator types in the panel, before it
-	// reaches the server. Commands the egg injects itself do not go here.
+	// InterceptInput consumes a complete panel line when it returns true.
+	// It runs outside mu and should enqueue work without blocking. A consumed
+	// line, including all of its fragments, never reaches the game's PTY.
+	InterceptInput func(cmd string) bool
+	// OnInput observes each forwarded panel line. Injected and intercepted
+	// commands do not go here. This callback also runs outside mu.
 	OnInput func(cmd string)
 	Line    func(string) // every output line, in order, without the newline
 	// StopCommand is written when ctx is cancelled; the process gets Grace
@@ -42,7 +46,6 @@ type Server struct {
 	mu       sync.Mutex
 	ptmx     *os.File
 	stopping atomic.Bool
-	partial  []byte // stdin bytes since the last newline, to spot a typed "quit"
 }
 
 // Stopping reports whether a stop was asked for: the panel typed quit (or
@@ -50,23 +53,12 @@ type Server struct {
 // not a crash.
 func (s *Server) Stopping() bool { return s.stopping.Load() }
 
-// noteInput watches forwarded console input for a stop command and hands
-// each finished line to OnInput.
-func (s *Server) noteInput(b []byte, fromPanel bool) {
-	for _, c := range b {
-		if c != '\n' && c != '\r' {
-			s.partial = append(s.partial, c)
-			continue
-		}
-		line := strings.TrimSpace(string(s.partial))
-		switch strings.ToLower(line) {
+func (s *Server) noteStop(command string) {
+	for _, line := range strings.FieldsFunc(command, func(c rune) bool { return c == '\n' || c == '\r' }) {
+		switch strings.ToLower(strings.TrimSpace(line)) {
 		case "quit", "exit":
 			s.stopping.Store(true)
 		}
-		if line != "" && fromPanel && s.OnInput != nil {
-			s.OnInput(line)
-		}
-		s.partial = s.partial[:0]
 	}
 }
 
@@ -78,7 +70,7 @@ func (s *Server) Send(cmd string) error {
 		return errors.New("server not running")
 	}
 	cmd = strings.TrimRight(cmd, "\r\n")
-	s.noteInput([]byte(cmd+"\n"), false)
+	s.noteStop(cmd)
 	_, err := io.WriteString(s.ptmx, cmd+"\n")
 	return err
 }
@@ -99,6 +91,8 @@ func (s *Server) Run(ctx context.Context) error {
 		s.mu.Unlock()
 		ptmx.Close()
 	}()
+	finished := make(chan struct{})
+	defer close(finished)
 
 	if s.Stdin != nil {
 		// two ptys would echo a typed command: the panel's and the server's.
@@ -111,19 +105,23 @@ func (s *Server) Run(ctx context.Context) error {
 			// a blocked read on the panel tty cannot be interrupted; the
 			// goroutine dies with the process
 			buf := make([]byte, 4096)
+			input := panelInput{server: s}
 			for {
 				n, err := s.Stdin.Read(buf)
+				select {
+				case <-finished:
+					return
+				default:
+				}
 				if n > 0 {
-					s.mu.Lock()
-					p := s.ptmx
-					s.noteInput(buf[:n], true)
-					s.mu.Unlock()
-					if p == nil {
+					if input.feed(buf[:n]) != nil {
 						return
 					}
-					p.Write(buf[:n])
 				}
 				if err != nil {
+					if len(input.partial) > 0 && !input.discard {
+						_ = s.panelLine(string(input.partial))
+					}
 					return
 				}
 			}

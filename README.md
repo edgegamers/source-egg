@@ -67,6 +67,8 @@ Prefer standalone? Skip step 1. `SOURCE_MODE=auto` installs into the server's ow
 
 SourceMod automatically requires Metamod. Framework upgrades preserve private configs, custom changes and disabled stock plugins. Exact version pins never silently become latest.
 
+Server owners can manage third-party plugins from public GitHub or private GitLab releases using `.source/plugins.json` and `egg plugins` panel console commands. Preview and approve an exact package, then install it at the next normal restart. No node access is needed. [Per-server plugin configuration, updates and rollback](docs/reference/plugins.md).
+
 The fresh-install password policy offers **one join password per server**, using EFF words and monthly rotation after opt-in. The wizard also supports per-game/node sharing and cron schedules with a timezone. Existing nodes retain their saved per-game/token/hour policy. Password generation is opt-in at both node and server; RCON credentials remain separate.
 
 ```bash

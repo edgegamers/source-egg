@@ -148,9 +148,9 @@ func (e *Egg) consoleSettings() (consoleSettings, error) {
 
 // Only console presentation is filtered; callers persist the masked original.
 func (s consoleSettings) display(masked string) (string, bool) {
-	// This line is a Wings lifecycle handshake, not optional log presentation.
-	// Thresholds, preview mode and user filters must preserve it verbatim.
-	if masked == panelReadyLine {
+	// Preserve the Wings lifecycle handshake and owner-action plugin notices
+	// through thresholds, preview mode and custom filters. Both are masked first.
+	if masked == panelReadyLine || strings.HasPrefix(masked, pluginNoticePrefix) {
 		return masked, true
 	}
 	level := 1
