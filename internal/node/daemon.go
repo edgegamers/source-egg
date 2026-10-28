@@ -332,6 +332,12 @@ func (d *Daemon) Run(ctx context.Context) error {
 		}
 	}()
 	if e := d.discover(ctx); e != nil {
+		// The control socket is already serving, so a normal stop can cancel
+		// Docker discovery before the main loop starts. Preserve genuine
+		// discovery failures while treating cancellation like the loop below.
+		if ctx.Err() != nil && errors.Is(e, ctx.Err()) {
+			return nil
+		}
 		return e
 	}
 	go d.warmup(ctx)

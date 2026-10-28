@@ -57,6 +57,11 @@ func (e *Egg) Run(ctx context.Context) error {
 	previousProgress := e.Progress
 	e.Progress = consoleWriter{line: line}
 	defer func() { e.Progress = previousProgress }()
+	// Recover before Steam or frameworks can touch paths in an interrupted
+	// plugin transaction. Recovery is independent of editable plugin recipes.
+	if err := e.recoverPlugins(); err != nil {
+		return err
+	}
 	prepared, err := e.Prepare(ctx)
 	if err != nil {
 		if ctx.Err() == nil && e.Node != nil && prepared.Identity.Validate() == nil {
@@ -71,6 +76,10 @@ func (e *Egg) Run(ctx context.Context) error {
 		return err
 	}
 	secrets = append(secrets, prepared.Password)
+	pluginManager, pluginCommands, err := e.preparePlugins(ctx, prepared, line)
+	if err != nil {
+		return err
+	}
 	if c.PersistLogs && e.Node != nil {
 		delivery = newConsoleDelivery(e, prepared.Identity, line)
 		for _, old := range tail {
@@ -81,12 +90,16 @@ func (e *Egg) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	server := &supervisor.Server{Cmd: cmd, Stdin: os.Stdin, Line: line, StopCommand: "quit", Grace: 30 * time.Second, Idle: 15 * time.Second}
+	server := &supervisor.Server{Cmd: cmd, Stdin: os.Stdin, InterceptInput: pluginCommands.intercept, Line: line, StopCommand: "quit", Grace: 30 * time.Second, Idle: 15 * time.Second}
 	runctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var workers sync.WaitGroup
 	if delivery != nil {
 		workers.Go(func() { delivery.run(runctx) })
+	}
+	workers.Go(func() { pluginCommands.run(runctx) })
+	if pluginManager != nil {
+		workers.Go(func() { pluginManager.Run(runctx) })
 	}
 	workers.Go(func() { e.watch(runctx, server, prepared, line) })
 	line("SourceEgg | Starting " + prepared.Profile.Name)

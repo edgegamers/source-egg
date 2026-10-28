@@ -1,0 +1,368 @@
+package plugins
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+type Manager struct {
+	mu              sync.Mutex
+	volume, gameDir string
+	source          ReleaseSource
+	defaultSource   bool
+	notice          func(string)
+	manifest        Manifest
+	state           managerState
+	installer       Installer
+}
+
+func New(volume, gameDir string, source ReleaseSource, notice func(string)) (*Manager, error) {
+	if !cleanRelative(gameDir, false) || strings.Contains(gameDir, "/") {
+		return nil, errors.New("invalid game directory")
+	}
+	m := &Manager{volume: volume, gameDir: gameDir, source: source, defaultSource: source == nil, notice: notice, state: freshState(), installer: Installer{Volume: volume, GameDir: gameDir}}
+	root, e := m.root()
+	if e != nil {
+		return nil, e
+	}
+	defer root.Close()
+	for _, d := range []string{".source", ".source/plugins", ".source/plugins/packages"} {
+		if e = managerPath(root, d, true); e != nil {
+			return nil, e
+		}
+		if e = root.MkdirAll(d, 0700); e != nil {
+			return nil, e
+		}
+		if e = root.Chmod(d, 0700); e != nil {
+			return nil, e
+		}
+	}
+	if _, e = root.Lstat(manifestPath); os.IsNotExist(e) {
+		if e = managerWrite(root, manifestPath, Manifest{Version: 1, CheckIntervalHours: 6, Plugins: []Plugin{}}); e != nil {
+			return nil, e
+		}
+	} else if e != nil {
+		return nil, e
+	}
+	if e = m.reload(); e != nil {
+		return nil, e
+	}
+	if e = managerRead(root, statePath, &m.state, 16<<20); e != nil && !os.IsNotExist(e) {
+		return nil, e
+	}
+	if m.state.Version != 1 || m.state.Available == nil || m.state.Pending == nil || m.state.Checked == nil {
+		return nil, errors.New("invalid plugin manager state")
+	}
+	for id, s := range m.state.Available {
+		if !identifier.MatchString(id) || !validSnapshotReference(s) {
+			return nil, errors.New("invalid staged plugin state")
+		}
+	}
+	for id, p := range m.state.Pending {
+		for _, name := range p.Preserve {
+			if !ValidTarget(name) {
+				return nil, errors.New("invalid pending preservation path")
+			}
+		}
+		if !identifier.MatchString(id) || !validSnapshotReference(p.Snapshot) || (p.Kind != "install" && p.Kind != "rollback" && p.Kind != "uninstall") {
+			return nil, errors.New("invalid pending plugin action")
+		}
+	}
+	return m, nil
+}
+func (m *Manager) emit(s string) {
+	if m.notice != nil {
+		clean := strings.Map(func(r rune) rune {
+			if r < 32 || r == 127 {
+				return ' '
+			}
+			return r
+		}, s)
+		m.notice("SourceEgg | Plugins | " + clean)
+	}
+}
+func (m *Manager) plugin(id string) (Plugin, bool) {
+	for _, p := range m.manifest.Plugins {
+		if p.ID == id {
+			return p, true
+		}
+	}
+	return Plugin{}, false
+}
+
+// Startup runs with the game stopped. Only unrecoverable transactions prevent boot.
+func (m *Manager) Startup(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e := m.installer.Recover(); e != nil {
+		return e
+	}
+	if e := m.reload(); e != nil {
+		m.emit("Configuration error; keeping installed plugins: " + e.Error())
+		return nil
+	}
+	ids := make([]string, 0, len(m.state.Pending))
+	for id := range m.state.Pending {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		a := m.state.Pending[id]
+		p, tracked := m.plugin(id)
+		if a.Kind != "uninstall" && (!tracked || a.Recipe != recipeHash(p)) {
+			m.emit(id + ": approval cancelled because its recipe changed or was removed")
+			delete(m.state.Pending, id)
+			continue
+		}
+		installed, e := m.installer.Installed()
+		if e != nil {
+			m.emit("Cannot load installed plugin receipts: " + e.Error())
+			return nil
+		}
+		switch a.Kind {
+		case "install", "rollback":
+			if installed[id].Current.ID != a.Snapshot.ID {
+				e = m.installer.Apply(id, a.Snapshot, a.Replace)
+			}
+		case "uninstall":
+			if cur, ok := installed[id]; ok {
+				if cur.Current.ID != a.Snapshot.ID {
+					e = errors.New("installed version changed; preview uninstall again")
+				} else {
+					installer := m.installer
+					installer.Preserve = map[string][]string{}
+					for pluginID, paths := range m.installer.Preserve {
+						installer.Preserve[pluginID] = paths
+					}
+					installer.Preserve[id] = append(append([]string(nil), installer.Preserve[id]...), a.Preserve...)
+					e = installer.Uninstall(id)
+				}
+			}
+		}
+		if e != nil {
+			if errors.Is(e, ErrRecovery) {
+				return e
+			}
+			m.emit(id + ": pending " + a.Kind + " paused: " + e.Error())
+			continue
+		}
+		delete(m.state.Pending, id)
+		m.emit(id + ": " + a.Kind + " completed")
+		if e = m.save(); e != nil {
+			m.emit("Cannot save plugin action state: " + e.Error())
+			return nil
+		}
+	}
+	if e := m.save(); e != nil {
+		m.emit("Cannot save plugin state: " + e.Error())
+		return nil
+	}
+	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	m.check(checkCtx, "")
+	return nil
+}
+
+// Run checks on a short scheduler tick so file-edited intervals take effect.
+func (m *Manager) Run(ctx context.Context) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			m.mu.Lock()
+			if e := m.reload(); e != nil {
+				m.emit("Configuration error: " + e.Error())
+				m.mu.Unlock()
+				continue
+			}
+			for _, p := range m.manifest.Plugins {
+				if time.Since(m.state.Checked[p.ID]) >= time.Duration(m.manifest.CheckIntervalHours)*time.Hour {
+					checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+					m.check(checkCtx, p.ID)
+					cancel()
+				}
+			}
+			m.mu.Unlock()
+		}
+	}
+}
+func (m *Manager) check(ctx context.Context, id string) {
+	installed, e := m.installer.Installed()
+	if e != nil {
+		m.emit("Cannot read installed plugin state: " + e.Error())
+		return
+	}
+	for _, p := range m.manifest.Plugins {
+		if id != "" && p.ID != id {
+			continue
+		}
+		m.state.Checked[p.ID] = time.Now().UTC()
+		release, e := m.source.Resolve(ctx, p)
+		if e != nil {
+			m.emit(p.ID + ": update check failed; keeping installed files: " + e.Error())
+			if cached, ok := m.state.Available[p.ID]; ok && cached.Recipe == recipeHash(p) {
+				m.emit(p.ID + ": previously staged version " + cached.Version + " remains available; run egg plugins preview " + p.ID)
+			}
+			continue
+		}
+		if release.Version == "" || len(release.Version) > 500 {
+			m.emit(p.ID + ": invalid release version")
+			continue
+		}
+		old := installed[p.ID].Current
+		if release.Version == old.Version && old.Recipe == recipeHash(p) {
+			delete(m.state.Available, p.ID)
+			m.emit(p.ID + ": installed " + old.Version + " is current")
+			continue
+		}
+		snap, e := m.stage(ctx, p, release)
+		if e != nil {
+			m.emit(p.ID + ": version " + release.Version + " is available, but staging failed; keeping installed files: " + e.Error())
+			continue
+		}
+		m.state.Available[p.ID] = snap
+		current := old.Version
+		if current == "" {
+			current = "not managed"
+		}
+		m.emit(p.ID + ": new version " + snap.Version + " available (installed: " + current + "); run egg plugins preview " + p.ID)
+		if len(old.Files) > 0 && !sameLayout(old, snap) {
+			m.emit(p.ID + ": package layout changed; review all mapped paths before approving this package")
+		}
+	}
+	if e = m.save(); e != nil {
+		m.emit("Cannot persist plugin check: " + e.Error())
+		return
+	}
+	m.collect()
+}
+func sameLayout(a, b Snapshot) bool {
+	if len(a.Files) != len(b.Files) {
+		return false
+	}
+	for p := range a.Files {
+		if _, ok := b.Files[p]; !ok {
+			return false
+		}
+	}
+	return true
+}
+func (m *Manager) stage(ctx context.Context, p Plugin, r Release) (Snapshot, error) {
+	root, e := m.root()
+	if e != nil {
+		return Snapshot{}, e
+	}
+	defer root.Close()
+	if e = managerPath(root, ".source/plugins/packages", false); e != nil {
+		return Snapshot{}, e
+	}
+	temp, e := os.MkdirTemp(filepath.Join(m.volume, ".source/plugins"), "work-")
+	if e != nil {
+		return Snapshot{}, e
+	}
+	defer os.RemoveAll(temp)
+	archive := filepath.Join(temp, "download")
+	if e = m.source.Download(ctx, p, r, archive); e != nil {
+		return Snapshot{}, e
+	}
+	payload := filepath.Join(temp, "payload")
+	files, e := PreparePackage(archive, payload, p, r.Asset.Name)
+	if e != nil {
+		return Snapshot{}, e
+	}
+	snap := Snapshot{Version: r.Version, Recipe: recipeHash(p), Files: files}
+	b, _ := json.Marshal(snap)
+	hash := sha256.Sum256(b)
+	snap.ID = hex.EncodeToString(hash[:])
+	snap.Directory = ".source/plugins/packages/" + snap.ID
+	if !validSnapshotReference(snap) {
+		return Snapshot{}, errors.New("empty or invalid mapped package")
+	}
+	if e = managerPath(root, snap.Directory, true); e != nil {
+		return Snapshot{}, e
+	}
+	if _, e = root.Lstat(snap.Directory); os.IsNotExist(e) {
+		e = os.Rename(payload, filepath.Join(m.volume, filepath.FromSlash(snap.Directory)))
+		if e != nil {
+			return Snapshot{}, e
+		}
+	} else if e != nil {
+		return Snapshot{}, e
+	}
+	directory, e := root.Open(".source/plugins/packages")
+	if e != nil {
+		return Snapshot{}, e
+	}
+	e = directory.Sync()
+	directory.Close()
+	if e != nil {
+		return Snapshot{}, e
+	}
+	return snap, nil
+}
+
+// Keep only available, approved and installed/history packages. Do not touch unknown paths.
+func (m *Manager) collect() {
+	installed, e := m.installer.Installed()
+	if e != nil {
+		return
+	}
+	keep := map[string]bool{}
+	for id, s := range m.state.Available {
+		if _, ok := m.plugin(id); !ok {
+			delete(m.state.Available, id)
+			continue
+		}
+		keep[s.ID] = true
+	}
+	for _, p := range m.state.Pending {
+		keep[p.Snapshot.ID] = true
+	}
+	for _, i := range installed {
+		keep[i.Current.ID] = true
+		for _, s := range i.Previous {
+			keep[s.ID] = true
+		}
+	}
+	root, e := m.root()
+	if e != nil {
+		return
+	}
+	defer root.Close()
+	if e = managerPath(root, ".source/plugins/packages", false); e != nil {
+		return
+	}
+	dir, e := root.Open(".source/plugins/packages")
+	if e != nil {
+		return
+	}
+	entries, e := dir.ReadDir(-1)
+	dir.Close()
+	if e != nil {
+		return
+	}
+	for _, entry := range entries {
+		id := entry.Name()
+		if len(id) != 64 || keep[id] || !entry.IsDir() {
+			continue
+		}
+		if _, e = hex.DecodeString(id); e != nil {
+			continue
+		}
+		_ = root.RemoveAll(".source/plugins/packages/" + id)
+	}
+	_ = m.save()
+}
+func Handles(line string) bool { f := strings.Fields(line); return len(f) > 0 && f[0] == "egg" }
