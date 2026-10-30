@@ -138,7 +138,7 @@ func (e *Egg) watch(ctx context.Context, server *supervisor.Server, p Prepared, 
 		case <-ticker.C:
 			players := -1
 			queryCtx, queryCancel := context.WithTimeout(ctx, 2*time.Second)
-			info, err := QueryInfo(queryCtx, fmt.Sprintf("127.0.0.1:%d", e.Config.Port))
+			info, err := QueryLocalInfo(queryCtx, e.Config.Port)
 			queryCancel()
 			ready := err == nil
 			if ready {

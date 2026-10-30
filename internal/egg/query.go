@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
+	"sync"
 	"time"
 )
 
-// QueryPlayers is local A2S_INFO only; unknown/malformed replies remain unknown.
+// ServerInfo contains A2S_INFO metadata; unknown/malformed replies remain unknown.
 type ServerInfo struct {
 	Name, Map string
 	Players   int
@@ -18,6 +20,56 @@ func QueryPlayers(ctx context.Context, address string) (int, error) {
 	info, err := QueryInfo(ctx, address)
 	return info.Players, err
 }
+
+// QueryLocalInfo probes only this network namespace's IPv4 addresses. Some
+// Source servers ignore loopback queries even when listening on 0.0.0.0.
+func QueryLocalInfo(ctx context.Context, port int) (ServerInfo, error) {
+	addresses := []string{fmt.Sprintf("127.0.0.1:%d", port)}
+	seen := map[string]bool{addresses[0]: true}
+	var errs []error
+	interfaces, err := net.InterfaceAddrs()
+	if err != nil {
+		errs = append(errs, fmt.Errorf("list local query addresses: %w", err))
+	}
+	for _, address := range interfaces {
+		ipnet, ok := address.(*net.IPNet)
+		if !ok || ipnet.IP.To4() == nil || ipnet.IP.IsLoopback() {
+			continue
+		}
+		address := (&net.UDPAddr{IP: ipnet.IP.To4(), Port: port}).String()
+		if !seen[address] {
+			seen[address] = true
+			addresses = append(addresses, address)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	type result struct {
+		info ServerInfo
+		err  error
+	}
+	results := make(chan result, len(addresses))
+	for _, address := range addresses {
+		workers.Go(func() {
+			info, err := QueryInfo(ctx, address)
+			results <- result{info, err}
+		})
+	}
+	for range addresses {
+		select {
+		case <-ctx.Done():
+			return ServerInfo{Players: -1}, ctx.Err()
+		case r := <-results:
+			if r.err == nil {
+				return r.info, nil
+			}
+			errs = append(errs, r.err)
+		}
+	}
+	return ServerInfo{Players: -1}, errors.Join(errs...)
+}
+
 func QueryInfo(ctx context.Context, address string) (ServerInfo, error) {
 	unknown := ServerInfo{Players: -1}
 	conn, e := (&net.Dialer{}).DialContext(ctx, "udp", address)
@@ -25,6 +77,8 @@ func QueryInfo(ctx context.Context, address string) (ServerInfo, error) {
 		return unknown, e
 	}
 	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { conn.Close() })
+	defer stop()
 	deadline := time.Now().Add(2 * time.Second)
 	if t, ok := ctx.Deadline(); ok {
 		deadline = t

@@ -96,6 +96,8 @@ Filtering and levels affect panel presentation only. Local `.source/logs/console
 
 The `SourceEgg | Ready` lifecycle message is always shown unchanged, including in preview mode. Wings needs it to mark startup complete.
 
+Readiness requires a successful A2S_INFO query on `SERVER_PORT`. Every 15 seconds, the egg queries localhost and its local IPv4 interface addresses concurrently, with a shared two-second limit. This supports servers such as TF2 that may answer on the container's interface address while ignoring localhost. The first successful query supplies readiness and player counts; the other queries are cancelled. Failed queries are never treated as a ready or empty server. Updating the runtime image applies this check; the panel's startup matcher remains `SourceEgg | Ready`.
+
 ## Standalone cleanup fallback
 
 `CLEANUP_ENABLED=0` performs no local cleanup and does not read or create the cleanup file. Setting it to `1` enables one cleanup pass before the game starts, after installation and framework preparation. It does not start a periodic cleanup task.
