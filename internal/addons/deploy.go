@@ -133,7 +133,9 @@ func Deploy(archive, volume, gameDir, name, version string, pluginOptions ...map
 	if e := ValidatePluginOptions(policies); e != nil {
 		return e
 	}
-	temp, e := os.MkdirTemp("", "source-framework-")
+	// Wings limits /tmp to 100 MiB by default. Stage on the server volume,
+	// like the S2Script egg, so framework size is bounded by disk space.
+	temp, e := os.MkdirTemp(volume, ".source-framework-")
 	if e != nil {
 		return e
 	}

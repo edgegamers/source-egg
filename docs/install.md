@@ -22,6 +22,8 @@ SteamCMD is seeded into `/home/container/.source/steamcmd` so it can self-update
 
 `INSTALL_SOURCEMOD=1` requires Metamod even if its separate toggle is off. Toggles control installation/update; they do not uninstall existing frameworks.
 
+Frameworks unpack into private temporary directories on the server volume, following the S2Script egg's disk-backed staging approach. Staging is removed after success or failure. Wings' default 100 MB `/tmp` limit is supported without changing the node configuration; the server volume needs room for both staging and the installed files.
+
 ## Optional node
 
 The normal release install uses the same bootstrap/wizard flow as the reference egg:
