@@ -8,7 +8,6 @@ Set these variables in the server's panel Startup settings, then restart the ser
 | `CLEANUP_ENABLED` | `0` | Enable the server's cleanup fallback before launch. |
 | `ENABLE_FILTER` | `0` | Apply the server's console filter to panel output. |
 | `CONSOLE_LOG_LEVEL` | Empty | Override the file's console level for this boot. |
-| `GDB_DEBUG_PORT` | Empty | Run the game under `gdbserver` on the selected port. |
 | `SOURCEMOD_PLUGIN_*` | `default` | Preserve, enable, or disable a supported stock SourceMod plugin. |
 | `ENABLE_LOG_FILES` | `1` | Forward masked output to node console archives when available. Local rotating logs remain enabled. |
 
@@ -197,7 +196,9 @@ Framework receipts identify stock file hashes. An unchanged stock plugin is upda
 
 ## Remote debugging
 
-To debug a server, allocate a separate port in the panel, set `GDB_DEBUG_PORT` to that port, and restart. Valid values are integers from 1 through 65,535, excluding `SERVER_PORT`. Empty disables debugging; `0` is not a valid panel value.
+Remote debugging is excluded from the default egg's Startup variables. Normal server starts do not launch `gdbserver`. Existing servers with a saved `GDB_DEBUG_PORT` must have that value cleared, set to `0`, or the variable removed in the panel's admin egg settings to disable debugging; updating the runtime image does not clear saved panel variables. If Pelican requires a value or rejects `0`, an administrator must update the egg variable's validation to `nullable|integer|between:0,65535` or remove the variable. Older runtime images reject `0`, so update the runtime image before using it to disable debugging.
+
+For explicit debugging, an administrator can add a `GDB_DEBUG_PORT` environment variable, allocate a separate port in the panel, set the variable to that port, and restart. Valid debug ports are integers from 1 through 65,535, excluding `SERVER_PORT`. Empty, whitespace-only values, and `0` disable debugging; surrounding whitespace is ignored. If adding a panel variable, use a default of `0` and `nullable|integer|between:0,65535` validation so servers can disable debugging even when the panel requires a value.
 
 Use an updated runtime image built from this repository, which installs `gdbserver`. The launch uses the equivalent of:
 
@@ -215,6 +216,6 @@ It launches a new engine process under the debugger; it does not attach to an ex
 
 The selected file must exist and be executable. Missing binaries or `gdbserver` stop startup; the egg does not silently fall back to a different launch mode. The native engine receives the normal game arguments plus validated custom arguments, with library paths for the selected architecture.
 
-The container must permit debugging through its ptrace/security policy, and the allocated TCP port must be reachable from the debugger. The egg does not change panel allocations, firewall rules, or container security settings. Debugger access controls the game process: restrict access to the debug port and clear `GDB_DEBUG_PORT` when finished. Install matching binaries/symbols in the debugging client as needed; the egg does not supply game debug symbols.
+The container must permit debugging through its ptrace/security policy, and the allocated TCP port must be reachable from the debugger. The egg does not change panel allocations, firewall rules, or container security settings. Debugger access controls the game process: restrict access to the debug port and clear `GDB_DEBUG_PORT` or set it to `0` when finished. Install matching binaries/symbols in the debugging client as needed; the egg does not supply game debug symbols.
 
 Native launches and argument handling are tested with temporary fake executables for all five profiles. The debugger wrapper is tested with a fake `gdbserver`. Acceptance against retail game binaries, a real debugger, and the runtime container remains a separate deployment check.

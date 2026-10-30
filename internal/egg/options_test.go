@@ -186,11 +186,62 @@ func TestRunFiltersMaskedConsoleButKeepsCompleteLocalLog(t *testing.T) {
 }
 
 func TestDebugPortValidation(t *testing.T) {
-	for _, port := range []string{"0", "-1", "65536", "oops", "27015", "12;sh"} {
+	for _, tc := range []struct {
+		raw  string
+		want int
+	}{{"", 0}, {" \t ", 0}, {"0", 0}, {" 0 ", 0}, {"1", 1}, {"393", 393}, {" 393 ", 393}, {"65535", 65535}} {
+		t.Run(tc.raw, func(t *testing.T) {
+			env := map[string]string{"SOURCE_GAME": "tf2", "SERVER_PORT": "27015", "GDB_DEBUG_PORT": tc.raw}
+			cfg, err := FromEnv(func(k string) string { return env[k] })
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.GDBDebugPort != tc.want {
+				t.Errorf("debugger port = %d, want %d", cfg.GDBDebugPort, tc.want)
+			}
+		})
+	}
+	for _, port := range []string{"-1", "65536", "oops", "27015", " 27015 ", "12;sh"} {
 		env := map[string]string{"SOURCE_GAME": "css", "SERVER_PORT": "27015", "GDB_DEBUG_PORT": port}
 		if _, err := FromEnv(func(k string) string { return env[k] }); err == nil {
 			t.Errorf("accepted debugger port %q", port)
 		}
+	}
+}
+
+func TestZeroDebugPortStartsTF2WithoutDebugger(t *testing.T) {
+	for _, params := range []string{"", `+sv_tags "normal startup"`} {
+		t.Run(params, func(t *testing.T) {
+			cfg := optionsConfig(t, map[string]string{"SOURCE_GAME": "tf2", "GDB_DEBUG_PORT": "0", "CUSTOM_PARAMS": params})
+			// No debugger is installed in this PATH. Both launch paths must start
+			// the game immediately, without needing a debugger connection.
+			t.Setenv("PATH", t.TempDir())
+			for _, name := range []string{"srcds_run_64", "srcds_linux64"} {
+				writeOptionFile(t, cfg.Dir, name, "#!/bin/sh\nprintf '%s\\n' 'TF2 started' \"$@\"\n")
+				if err := os.Chmod(filepath.Join(cfg.Dir, name), 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			e := Egg{Config: cfg, Installer: &installRecorder{}, Progress: io.Discard}
+			prepared, err := e.Prepare(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			cmd, err := e.command(prepared)
+			if err != nil {
+				t.Fatal(err)
+			}
+			output, err := cmd.Output()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(string(output), "TF2 started\n-game\ntf\n") {
+				t.Fatalf("TF2 did not start normally: %q", output)
+			}
+			if params != "" && !strings.Contains(string(output), "+sv_tags\nnormal startup\n") {
+				t.Fatalf("lost custom arguments: %q", output)
+			}
+		})
 	}
 }
 
@@ -296,7 +347,7 @@ func TestPanelDefaultsProduceValidatedLaunchSettings(t *testing.T) {
 	for _, v := range panel.Variables {
 		env[v.Env] = v.Default
 	}
-	for _, name := range []string{"CUSTOM_PARAMS", "CLEANUP_ENABLED", "ENABLE_FILTER", "CONSOLE_LOG_LEVEL", "GDB_DEBUG_PORT", "SOURCEMOD_PLUGIN_BASECHAT", "SOURCEMOD_PLUGIN_ROCKTHEVOTE"} {
+	for _, name := range []string{"CUSTOM_PARAMS", "CLEANUP_ENABLED", "ENABLE_FILTER", "CONSOLE_LOG_LEVEL", "SOURCEMOD_PLUGIN_BASECHAT", "SOURCEMOD_PLUGIN_ROCKTHEVOTE"} {
 		if _, ok := env[name]; !ok {
 			t.Errorf("missing panel control %s", name)
 		}
@@ -304,8 +355,12 @@ func TestPanelDefaultsProduceValidatedLaunchSettings(t *testing.T) {
 	env["SERVER_PORT"] = "27015"
 	for _, name := range []string{"css", "csgo", "dods", "l4d2", "tf2"} {
 		env["SOURCE_GAME"] = name
-		if _, err := FromEnv(func(k string) string { return env[k] }); err != nil {
+		cfg, err := FromEnv(func(k string) string { return env[k] })
+		if err != nil {
 			t.Errorf("%s panel defaults: %v", name, err)
+		}
+		if cfg.GDBDebugPort != 0 {
+			t.Errorf("%s panel defaults enable remote debugging", name)
 		}
 	}
 	if strings.Contains(panel.Startup, "{{CUSTOM_PARAMS}}") {

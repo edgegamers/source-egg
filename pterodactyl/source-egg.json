@@ -273,16 +273,6 @@
             "field_type": "text"
         },
         {
-            "name": "Remote debugger port",
-            "description": "Opt in to gdbserver on this allocated port; must differ from the game port. Grants debugger access to the server process. Requires network access and container ptrace support. Empty disables.",
-            "env_variable": "GDB_DEBUG_PORT",
-            "default_value": "",
-            "user_viewable": true,
-            "user_editable": true,
-            "rules": "nullable|integer|between:1,65535",
-            "field_type": "text"
-        },
-        {
             "name": "SourceMod basecommands",
             "description": "Stock plugin: default preserves manual placement and edits; 1 enables; 0 disables. Custom plugins are never overwritten. Applies when SourceMod is installed.",
             "env_variable": "SOURCEMOD_PLUGIN_BASECOMMANDS",

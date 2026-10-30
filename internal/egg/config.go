@@ -56,10 +56,10 @@ func FromEnv(get func(string) string) (Config, error) {
 	if e != nil {
 		return c, errors.New("SERVER_PORT must be an integer")
 	}
-	if raw := get("GDB_DEBUG_PORT"); raw != "" {
+	if raw := strings.TrimSpace(get("GDB_DEBUG_PORT")); raw != "" {
 		c.GDBDebugPort, e = strconv.Atoi(raw)
-		if e != nil || c.GDBDebugPort < 1 || c.GDBDebugPort > 65535 || c.GDBDebugPort == c.Port {
-			return c, errors.New("GDB_DEBUG_PORT must be 1–65535 and differ from SERVER_PORT")
+		if e != nil || c.GDBDebugPort < 0 || c.GDBDebugPort > 65535 || c.GDBDebugPort == c.Port {
+			return c, errors.New("GDB_DEBUG_PORT must be empty or 0 (disabled), or 1–65535 and different from SERVER_PORT")
 		}
 	}
 	if s := get("MAX_PLAYERS"); s != "" {
