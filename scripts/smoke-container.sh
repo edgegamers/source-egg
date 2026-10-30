@@ -4,7 +4,7 @@ source_egg_image=${1:-source-egg:dev}
 # Simulate Wings' read-only root and arbitrary configured UID without Steam/game downloads.
 docker run --rm -i --read-only --user 988:988 \
   --tmpfs /home/container:rw,exec,uid=988,gid=988,mode=0700 \
-  --tmpfs /tmp:rw,mode=1777 \
+  --tmpfs /tmp:rw,mode=1777,size=100m \
   -e SOURCE_GAME=CS:S -e SOURCE_MODE=standalone -e NODE_WAIT_SECONDS=0 \
   -e AUTO_UPDATE=0 -e INSTALL_METAMOD=0 -e INSTALL_SOURCEMOD=0 \
   --entrypoint /bin/bash "$source_egg_image" -s <<'SMOKE'
