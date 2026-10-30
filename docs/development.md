@@ -8,7 +8,7 @@ docker build -t source-egg:dev .
 bash scripts/smoke-container.sh source-egg:dev
 ```
 
-The verification script runs tests/race checks, vet, formatting checks, Linux builds and shell syntax checks. Binaries are written under ignored `dist/`. The container smoke uses a fixture server with a read-only root and arbitrary UID; no retail game is downloaded.
+The verification script runs tests/race checks, vet, formatting checks, Linux builds and shell syntax checks. Binaries are written under ignored `dist/`. The container smoke checks the ELF class and resolved dependencies of both the 32-bit and 64-bit GnuTLS curl libraries, then uses a fixture server with a read-only root and arbitrary UID; no retail game is downloaded. The 64-bit library is required by TF2's replay module even when OpenSSL curl is installed.
 
 Image builds download Valve's current SteamCMD packages over HTTPS and verify their SHA-256 hashes against Valve's manifest. They do not execute the legacy tarball's self-updater, which can fail to reach its update servers on hosted CI runners. The seed includes both Steam client library architectures; normal SteamCMD checks still run when installing/updating a game. `scripts/test-seed-steamcmd.sh` checks the download/checksum flow with isolated fixtures and an updater that would fail if executed.
 

@@ -17,7 +17,6 @@ type fileState struct {
 	Size    int64       `json:"size"`
 	Mode    fs.FileMode `json:"mode"`
 	ModTime int64       `json:"mtime"`
-	Changed int64       `json:"ctime"`
 	Device  uint64      `json:"dev"`
 	Inode   uint64      `json:"ino"`
 }
@@ -29,7 +28,12 @@ type copiedFile struct {
 
 func copyState(info fs.FileInfo) fileState {
 	stat := info.Sys().(*syscall.Stat_t)
-	return fileState{Size: info.Size(), Mode: info.Mode(), ModTime: info.ModTime().UnixNano(), Changed: stat.Ctim.Sec*1e9 + stat.Ctim.Nsec, Device: uint64(stat.Dev), Inode: stat.Ino}
+	// ctime also changes on ownership-only checks performed by Wings before
+	// every boot. It cannot be used to decide whether file data needs copying.
+	return fileState{
+		Size: info.Size(), Mode: info.Mode(), ModTime: info.ModTime().UnixNano(),
+		Device: uint64(stat.Dev), Inode: stat.Ino,
+	}
 }
 
 func ownership(info fs.FileInfo) (*fileOwner, error) {

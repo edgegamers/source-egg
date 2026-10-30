@@ -64,6 +64,44 @@ func TestRepeatedDeploymentReusesUnchangedStockFiles(t *testing.T) {
 	}
 }
 
+func TestRepeatedDeploymentReusesStockAfterPanelOwnershipCheck(t *testing.T) {
+	g, volume, shared := tf2DeliveryFixture(t)
+	if err := Deploy(g, volume, shared); err != nil {
+		t.Fatal(err)
+	}
+	stock := filepath.Join(volume, "tf/maps/stock.bsp")
+	original, err := os.Open(stock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer original.Close()
+	before, err := original.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Wings walks the server volume and lchowns every entry before boot,
+	// including files that already have the requested ownership. This changes
+	// ctime even though their contents, mtime, mode and identity are unchanged.
+	if err := filepath.WalkDir(volume, func(path string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Lchown(path, os.Getuid(), os.Getgid())
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Deploy(g, volume, shared); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(stock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatal("panel's ownership check caused an unchanged stock map to be copied again")
+	}
+}
+
 func TestRepeatedDeploymentRepairsChangedStockFiles(t *testing.T) {
 	for _, change := range []string{"missing", "edited", "preserved-mtime", "permissions", "symlink"} {
 		t.Run(change, func(t *testing.T) {
@@ -90,9 +128,15 @@ func TestRepeatedDeploymentRepairsChangedStockFiles(t *testing.T) {
 				if statErr != nil {
 					t.Fatal(statErr)
 				}
-				err = os.WriteFile(stock, []byte("local map"), 0644)
+				// Editors that save by rename can preserve size and mtime;
+				// the replacement inode must still invalidate the cached copy.
+				replacement := stock + ".replacement"
+				err = os.WriteFile(replacement, []byte("local map"), 0644)
 				if err == nil {
-					err = os.Chtimes(stock, before.ModTime(), before.ModTime())
+					err = os.Chtimes(replacement, before.ModTime(), before.ModTime())
+				}
+				if err == nil {
+					err = os.Rename(replacement, stock)
 				}
 			case "permissions":
 				err = os.Chmod(stock, 0600)
@@ -213,6 +257,14 @@ func BenchmarkRepeatedTF2Deployment(b *testing.B) {
 	}
 	b.ResetTimer()
 	for b.Loop() {
+		if err := filepath.WalkDir(volume, func(path string, _ os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			return os.Lchown(path, os.Getuid(), os.Getgid())
+		}); err != nil {
+			b.Fatal(err)
+		}
 		if err := Deploy(g, volume, shared); err != nil {
 			b.Fatal(err)
 		}

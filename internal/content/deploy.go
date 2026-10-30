@@ -279,8 +279,8 @@ func writeDeployment(root *os.Root, name string, in io.Reader, mode fs.FileMode,
 	if e = root.Rename(tmp, name); e != nil {
 		return nil, e
 	}
-	// Keep the descriptor open through rename: its ctime changes on rename,
-	// and inspecting the path could capture a concurrent replacement instead.
+	// Keep the descriptor open through rename so the receipt describes the
+	// file we wrote, rather than a concurrent replacement at the same path.
 	installed, e := out.Stat()
 	if e != nil {
 		return nil, e

@@ -15,7 +15,7 @@ COPY scripts/seed-steamcmd.sh /usr/local/lib/source-egg/seed-steamcmd.sh
 RUN dpkg --add-architecture i386 \
  && apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl tar bzip2 xz-utils unzip gdbserver \
-    lib32gcc-s1 lib32stdc++6 libc6:i386 libcurl4 libcurl3-gnutls:i386 libtinfo6:i386 \
+    lib32gcc-s1 lib32stdc++6 libc6:i386 libcurl4 libcurl3-gnutls:amd64 libcurl3-gnutls:i386 libtinfo6:i386 \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --create-home --home-dir /home/container --uid 1000 --shell /bin/bash container \
  && mkdir -p /opt/steamcmd /opt/source-shared /opt/source-frameworks /run/source-node \
