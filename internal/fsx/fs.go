@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 )
 
+// MaxJSONBytes bounds the persisted receipts accepted by ReadJSON.
+const MaxJSONBytes = 16 << 20
+
 func Token() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -91,19 +94,18 @@ func ReadJSON(root *os.Root, name string, v any) error {
 		return e
 	}
 	defer f.Close()
-	const maxJSONBytes = 16 << 20
 	st, e := f.Stat()
 	if e != nil {
 		return e
 	}
-	if !st.Mode().IsRegular() || st.Size() > maxJSONBytes {
+	if !st.Mode().IsRegular() || st.Size() > MaxJSONBytes {
 		return errors.New("JSON receipt must be a regular file of at most 16 MiB")
 	}
-	b, e := io.ReadAll(io.LimitReader(f, maxJSONBytes+1))
+	b, e := io.ReadAll(io.LimitReader(f, MaxJSONBytes+1))
 	if e != nil {
 		return e
 	}
-	if len(b) > maxJSONBytes {
+	if len(b) > MaxJSONBytes {
 		return errors.New("JSON receipt exceeds 16 MiB")
 	}
 	return json.Unmarshal(b, v)

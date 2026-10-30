@@ -84,6 +84,8 @@ Running servers keep their concrete VPK targets until restart. Server configs, a
 
 Symlink delivery remains the default. `hardlink` shares VPK inodes on the same filesystem, requiring a stable non-root container UID distinct from the shared file owner. `copy` makes private VPK copies. Unsupported hardlinks fail explicitly, preserving existing files. Both alternate modes require a matched egg image supporting node-side delivery; old images continue to work with symlinks. Immutable generations remain the update/rollback boundary in all modes.
 
+Repeated starts reuse unchanged private copies of stock maps, binaries and other loose game files from the same generation. The deployment receipt records source and destination metadata, including file identity and change times; missing, edited or replaced stock files are copied again. A different generation performs a fresh delivery. Existing volumes need one complete delivery after upgrading to record this metadata, then later starts avoid the repeated file copies and flushes. If optional metadata would exceed the receipt size limit, full delivery remains available. This optimization runs in `sourcenode` for host delivery, so updating only the game container image does not update the node's delivery code.
+
 ```bash
 sudo sourcenode update css
 sudo sourcenode history css

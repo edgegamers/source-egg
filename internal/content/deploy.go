@@ -16,8 +16,9 @@ import (
 )
 
 type Deployment struct {
-	Generation Generation `json:"generation"`
-	Files      []string   `json:"files"`
+	Generation Generation            `json:"generation"`
+	Files      []string              `json:"files"`
+	Copies     map[string]copiedFile `json:"copies,omitempty"`
 }
 
 type DeployOptions struct {
@@ -92,7 +93,7 @@ func DeployWithOptions(g Generation, volume, mountedRoot string, options DeployO
 		if err != nil {
 			return err
 		}
-		if err = writeDeployment(root, ".source/identity.json", bytes.NewReader(data), 0600, owner); err != nil {
+		if _, err = writeDeployment(root, ".source/identity.json", bytes.NewReader(data), 0600, owner); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -106,7 +107,8 @@ func DeployWithOptions(g Generation, volume, mountedRoot string, options DeployO
 	if e != nil && !os.IsNotExist(e) {
 		return e
 	}
-	next := Deployment{Generation: g}
+	next := Deployment{Generation: g, Copies: map[string]copiedFile{}}
+	sameGeneration := old.Generation.Identity == g.Identity && old.Generation.Key == g.Key && old.Generation.BuildID == g.BuildID
 	present := map[string]bool{}
 	e = filepath.WalkDir(g.Path, func(path string, d fs.DirEntry, e error) error {
 		if e != nil {
@@ -177,12 +179,29 @@ func DeployWithOptions(g Generation, volume, mountedRoot string, options DeployO
 				return linkDeployment(root, path, rel)
 			}
 		}
+		// Published generations are immutable. Reuse only files whose source
+		// and installed metadata still match the completed deployment receipt.
+		// Lstat prevents a replacement symlink from being treated as a copy.
+		if previous, ok := old.Copies[rel]; sameGeneration && ok && previous.Source == copyState(info) {
+			installed, err := root.Lstat(rel)
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if err == nil && installed.Mode().IsRegular() && previous.Destination == copyState(installed) {
+				next.Copies[rel] = previous
+				return nil
+			}
+		}
 		in, e := os.Open(path)
 		if e != nil {
 			return e
 		}
 		defer in.Close()
-		return writeDeployment(root, rel, in, info.Mode().Perm(), owner)
+		installed, e := writeDeployment(root, rel, in, info.Mode().Perm(), owner)
+		if e == nil && !seedOnly(rel, p.Dir) {
+			next.Copies[rel] = copiedFile{Source: copyState(info), Destination: copyState(installed)}
+		}
+		return e
 	})
 	if e != nil {
 		return e
@@ -197,52 +216,79 @@ func DeployWithOptions(g Generation, volume, mountedRoot string, options DeployO
 			}
 		}
 	}
+	return writeDeploymentReceipt(root, next, owner)
+}
+
+func writeDeploymentReceipt(root *os.Root, next Deployment, owner *fileOwner) error {
 	data, e := json.MarshalIndent(next, "", "  ")
 	if e != nil {
 		return e
 	}
-	return writeDeployment(root, ".source/managed.json", bytes.NewReader(append(data, '\n')), 0600, owner)
+	if len(data)+1 > fsx.MaxJSONBytes {
+		// Copy fingerprints are an optimization. Large installations can use
+		// full delivery instead, but must retain their complete file inventory
+		// in a receipt that the next start can still read.
+		next.Copies = nil
+		data, e = json.MarshalIndent(next, "", "  ")
+		if e != nil {
+			return e
+		}
+		if len(data)+1 > fsx.MaxJSONBytes {
+			return errors.New("managed file receipt exceeds 16 MiB")
+		}
+	}
+	_, e = writeDeployment(root, ".source/managed.json", bytes.NewReader(append(data, '\n')), 0600, owner)
+	return e
 }
 
 // All replacements use exclusive temporary files and rename, so a prior VPK
 // link (or a malicious destination symlink) can never overwrite its target.
-func writeDeployment(root *os.Root, name string, in io.Reader, mode fs.FileMode, owner *fileOwner) error {
+func writeDeployment(root *os.Root, name string, in io.Reader, mode fs.FileMode, owner *fileOwner) (fs.FileInfo, error) {
 	if e := deploymentDirs(root, filepath.Dir(name), owner); e != nil {
-		return e
+		return nil, e
 	}
 	if owner != nil {
 		if info, err := root.Lstat(name); err == nil {
 			var e error
 			owner, e = ownership(info)
 			if e != nil {
-				return e
+				return nil, e
 			}
 		} else if !os.IsNotExist(err) {
-			return err
+			return nil, err
 		}
 	}
 	tmp := name + ".tmp-" + fsx.Token()
 	out, e := root.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if e != nil {
-		return e
+		return nil, e
 	}
 	defer root.Remove(tmp)
 	defer out.Close()
 	if _, e = io.Copy(out, in); e != nil {
-		return e
+		return nil, e
 	}
 	if owner != nil {
 		if e = out.Chown(owner.uid, owner.gid); e != nil {
-			return e
+			return nil, e
 		}
 	}
 	if e = out.Sync(); e != nil {
-		return e
+		return nil, e
+	}
+	if e = root.Rename(tmp, name); e != nil {
+		return nil, e
+	}
+	// Keep the descriptor open through rename: its ctime changes on rename,
+	// and inspecting the path could capture a concurrent replacement instead.
+	installed, e := out.Stat()
+	if e != nil {
+		return nil, e
 	}
 	if e = out.Close(); e != nil {
-		return e
+		return nil, e
 	}
-	return root.Rename(tmp, name)
+	return installed, nil
 }
 
 func deploymentDirs(root *os.Root, name string, owner *fileOwner) error {
