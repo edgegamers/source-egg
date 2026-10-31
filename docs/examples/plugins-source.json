@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "check_interval_hours": 6,
+  "plugins": [
+    {
+      "id": "dxlevel-restrict",
+      "source": {
+        "provider": "gitlab",
+        "url": "https://gitlab.edgegamers.io",
+        "repository": "source/plugins/counter-strike/dxlevel-restrict",
+        "credential": "edgegamers-gitlab",
+        "ref": "main"
+      },
+      "build": {
+        "sourcemod": "1.13.0.7478",
+        "sources": ["scripting/dxlevel-restrict.sp"]
+      },
+      "mappings": [
+        {"from": "compiled/dxlevel-restrict.smx", "to": "addons/sourcemod/plugins/dxlevel-restrict.smx"}
+      ]
+    },
+    {
+      "id": "anti-voice-overflow",
+      "source": {
+        "provider": "gitlab",
+        "url": "https://gitlab.edgegamers.io",
+        "repository": "source/plugins/counter-strike/anti-voice-overflow",
+        "credential": "edgegamers-gitlab",
+        "ref": "main"
+      },
+      "build": {
+        "sourcemod": "1.13.0.7478",
+        "sources": ["addons/sourcemod/scripting/anti_voice_overflow.sp"]
+      },
+      "mappings": [
+        {"from": "compiled/anti_voice_overflow.smx", "to": "addons/sourcemod/plugins/disabled/anti_voice_overflow.smx"},
+        {"from": "addons/sourcemod/gamedata", "to": "addons/sourcemod/gamedata"}
+      ]
+    },
+    {
+      "id": "wager",
+      "source": {
+        "provider": "gitlab",
+        "url": "https://gitlab.edgegamers.io",
+        "repository": "source/plugins/counter-strike/wager",
+        "credential": "edgegamers-gitlab",
+        "ref": "main"
+      },
+      "build": {
+        "sourcemod": "1.13.0.7478",
+        "sources": ["scripting/wager.sp"],
+        "dependencies": [
+          {
+            "source": {
+              "provider": "gitlab",
+              "url": "https://gitlab.edgegamers.io",
+              "repository": "source/plugins/multicolors",
+              "credential": "edgegamers-gitlab",
+              "ref": "main"
+            },
+            "include_dirs": ["include"]
+          }
+        ]
+      },
+      "mappings": [
+        {"from": "compiled/wager.smx", "to": "addons/sourcemod/plugins/wager.smx"},
+        {"from": "translations", "to": "addons/sourcemod/translations"}
+      ]
+    }
+  ]
+}

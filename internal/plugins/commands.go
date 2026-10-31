@@ -8,7 +8,6 @@ import (
 	"io"
 	"sort"
 	"strings"
-	"time"
 )
 
 const commandHelp = "Commands: egg plugins list | add <plugin JSON> | check [id] | preview <id> | approve <id> <package-id> [replace] | adopt <id> <package-id> | keep <id> <path> | rollback <id> <previous-package-id> [replace] | uninstall <id> [confirm] | cancel <id>. Edit .source/plugins.json for all options."
@@ -81,6 +80,13 @@ func (m *Manager) command(ctx context.Context, f []string, line string) error {
 			} else if p.Pin != "" {
 				s += " pin=" + p.Pin
 			}
+			if tracked && p.Build != nil {
+				ref := p.Source.Ref
+				if ref == "" {
+					ref = "main"
+				}
+				s += " source=" + p.Source.Repository + " ref=" + ref
+			}
 			if a, ok := m.state.Available[id]; ok {
 				s += " available=" + a.Version + " package=" + a.ID
 			}
@@ -138,9 +144,7 @@ func (m *Manager) command(ctx context.Context, f []string, line string) error {
 				return errors.New("unknown plugin")
 			}
 		}
-		checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-		defer cancel()
-		m.check(checkCtx, id)
+		m.check(ctx, id)
 		return nil
 	case "preview":
 		if len(f) != 4 {

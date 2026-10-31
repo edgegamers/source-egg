@@ -18,6 +18,7 @@ type Manager struct {
 	mu              sync.Mutex
 	volume, gameDir string
 	source          ReleaseSource
+	compiler        CompilerProvider
 	defaultSource   bool
 	notice          func(string)
 	manifest        Manifest
@@ -189,9 +190,7 @@ func (m *Manager) Run(ctx context.Context) {
 			}
 			for _, p := range m.manifest.Plugins {
 				if time.Since(m.state.Checked[p.ID]) >= time.Duration(m.manifest.CheckIntervalHours)*time.Hour {
-					checkCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-					m.check(checkCtx, p.ID)
-					cancel()
+					m.check(ctx, p.ID)
 				}
 			}
 			m.mu.Unlock()
@@ -205,42 +204,13 @@ func (m *Manager) check(ctx context.Context, id string) {
 		return
 	}
 	for _, p := range m.manifest.Plugins {
+		if ctx.Err() != nil {
+			break
+		}
 		if id != "" && p.ID != id {
 			continue
 		}
-		m.state.Checked[p.ID] = time.Now().UTC()
-		release, e := m.source.Resolve(ctx, p)
-		if e != nil {
-			m.emit(p.ID + ": update check failed; keeping installed files: " + e.Error())
-			if cached, ok := m.state.Available[p.ID]; ok && cached.Recipe == recipeHash(p) {
-				m.emit(p.ID + ": previously staged version " + cached.Version + " remains available; run egg plugins preview " + p.ID)
-			}
-			continue
-		}
-		if release.Version == "" || len(release.Version) > 500 {
-			m.emit(p.ID + ": invalid release version")
-			continue
-		}
-		old := installed[p.ID].Current
-		if release.Version == old.Version && old.Recipe == recipeHash(p) {
-			delete(m.state.Available, p.ID)
-			m.emit(p.ID + ": installed " + old.Version + " is current")
-			continue
-		}
-		snap, e := m.stage(ctx, p, release)
-		if e != nil {
-			m.emit(p.ID + ": version " + release.Version + " is available, but staging failed; keeping installed files: " + e.Error())
-			continue
-		}
-		m.state.Available[p.ID] = snap
-		current := old.Version
-		if current == "" {
-			current = "not managed"
-		}
-		m.emit(p.ID + ": new version " + snap.Version + " available (installed: " + current + "); run egg plugins preview " + p.ID)
-		if len(old.Files) > 0 && !sameLayout(old, snap) {
-			m.emit(p.ID + ": package layout changed; review all mapped paths before approving this package")
-		}
+		m.checkPlugin(ctx, p, installed[p.ID].Current)
 	}
 	if e = m.save(); e != nil {
 		m.emit("Cannot persist plugin check: " + e.Error())
@@ -248,6 +218,72 @@ func (m *Manager) check(ctx context.Context, id string) {
 	}
 	m.collect()
 }
+
+func (m *Manager) checkPlugin(ctx context.Context, p Plugin, old Snapshot) {
+	parentCtx := ctx
+	budget := 2 * time.Minute
+	if p.Build != nil {
+		budget = 5 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	defer func() {
+		if p.Build != nil && parentCtx.Err() != nil {
+			delete(m.state.Checked, p.ID) // Retry a startup-budget timeout after the game starts.
+		}
+	}()
+	m.state.Checked[p.ID] = time.Now().UTC()
+	release, e := m.source.Resolve(ctx, p)
+	if e != nil {
+		m.emit(p.ID + ": update check failed; keeping installed files: " + e.Error())
+		if cached, ok := m.state.Available[p.ID]; ok && cached.Recipe == recipeHash(p) {
+			m.emit(p.ID + ": previously staged version " + cached.Version + " remains available; run egg plugins preview " + p.ID)
+		}
+		return
+	}
+	if release.Version == "" || len(release.Version) > 500 {
+		m.emit(p.ID + ": invalid release version")
+		return
+	}
+	if release.Version == old.Version && old.Recipe == recipeHash(p) {
+		delete(m.state.Available, p.ID)
+		m.emit(p.ID + ": installed " + old.Version + " is current")
+		return
+	}
+	if p.Build != nil {
+		if cached, ok := m.state.Available[p.ID]; ok && cached.Version == release.Version && cached.Recipe == recipeHash(p) && m.cachedSourceExists(cached) {
+			m.emit(p.ID + ": staged " + cached.Version + " remains available; run egg plugins preview " + p.ID)
+			return
+		}
+	}
+	snap, e := m.stage(ctx, p, release)
+	if e != nil {
+		m.emit(p.ID + ": version " + release.Version + " is available, but staging failed; keeping installed files: " + e.Error())
+		return
+	}
+	m.state.Available[p.ID] = snap
+	current := old.Version
+	if current == "" {
+		current = "not managed"
+	}
+	m.emit(p.ID + ": new version " + snap.Version + " available (installed: " + current + "); run egg plugins preview " + p.ID)
+	if len(old.Files) > 0 && !sameLayout(old, snap) {
+		m.emit(p.ID + ": package layout changed; review all mapped paths before approving this package")
+	}
+}
+
+func (m *Manager) cachedSourceExists(s Snapshot) bool {
+	if !validSnapshotReference(s) {
+		return false
+	}
+	f, err := openInstallFS(m.volume)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	return m.installer.staged(f, s) == nil
+}
+
 func sameLayout(a, b Snapshot) bool {
 	if len(a.Files) != len(b.Files) {
 		return false
@@ -278,7 +314,13 @@ func (m *Manager) stage(ctx context.Context, p Plugin, r Release) (Snapshot, err
 		return Snapshot{}, e
 	}
 	payload := filepath.Join(temp, "payload")
-	files, e := PreparePackage(archive, payload, p, r.Asset.Name)
+	var files map[string]File
+	if p.Build != nil {
+		builder := SourceBuilder{CacheDir: filepath.Join(m.volume, ".source/plugins/toolchains"), Source: m.source, Compiler: m.compiler}
+		files, e = builder.Build(ctx, p, r, archive, payload)
+	} else {
+		files, e = PreparePackage(archive, payload, p, r.Asset.Name)
+	}
 	if e != nil {
 		return Snapshot{}, e
 	}
@@ -300,6 +342,12 @@ func (m *Manager) stage(ctx context.Context, p Plugin, r Release) (Snapshot, err
 		}
 	} else if e != nil {
 		return Snapshot{}, e
+	} else if p.Build != nil && !m.cachedSourceExists(snap) {
+		// The new payload has the exact original snapshot identity. Restore only
+		// those expected bytes; approvals and history still refer to the same ID.
+		if e = m.repairSourceSnapshot(snap, payload); e != nil {
+			return Snapshot{}, e
+		}
 	}
 	directory, e := root.Open(".source/plugins/packages")
 	if e != nil {
@@ -311,6 +359,34 @@ func (m *Manager) stage(ctx context.Context, p Plugin, r Release) (Snapshot, err
 		return Snapshot{}, e
 	}
 	return snap, nil
+}
+
+func (m *Manager) repairSourceSnapshot(s Snapshot, payload string) error {
+	f, err := openInstallFS(m.volume)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	root, err := os.OpenRoot(payload)
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	for _, name := range sortedSnapshotFiles(s.Files) {
+		input, err := root.Open(name)
+		if err != nil {
+			return err
+		}
+		info, err := input.Stat()
+		if err == nil {
+			err = f.atomic(s.Directory+"/"+name, input, s.Files[name].SHA256, info.Mode())
+		}
+		input.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Keep only available, approved and installed/history packages. Do not touch unknown paths.
