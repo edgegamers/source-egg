@@ -335,14 +335,19 @@ func (e *packageExtraction) tar(source *os.File) error {
 		if err = e.count(); err != nil {
 			return err
 		}
-		directory := header.Typeflag == tar.TypeDir
-		if !directory && header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
-			return errors.New("archive links and special entries are forbidden")
-		}
 		for key := range header.PAXRecords {
 			if strings.HasPrefix(key, "GNU.sparse") {
 				return errors.New("sparse archive entries are forbidden")
 			}
+		}
+		// Git archives include a global PAX record containing the commit ID.
+		// It is bounded metadata, not a member to extract or map into payloads.
+		if header.Typeflag == tar.TypeXGlobalHeader {
+			continue
+		}
+		directory := header.Typeflag == tar.TypeDir
+		if !directory && header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			return errors.New("archive links and special entries are forbidden")
 		}
 		name, err := packageArchiveName(header.Name, directory)
 		if err != nil {

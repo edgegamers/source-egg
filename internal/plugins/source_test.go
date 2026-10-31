@@ -79,6 +79,101 @@ func TestHTTPSourceRepositoryCommitsAndDependencyIdentity(t *testing.T) {
 	}
 }
 
+func TestHTTPSourceGitHubRepositoryArchiveDownload(t *testing.T) {
+	commit := strings.Repeat("a", 40)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/repos/owner/repo/commits/main":
+			json.NewEncoder(w).Encode(map[string]string{"sha": commit})
+		case "/repos/owner/repo/tarball/" + commit:
+			if r.Header.Get("Accept") != "application/vnd.github+json" {
+				http.Error(w, "Unsupported Accept header", http.StatusUnsupportedMediaType)
+				return
+			}
+			http.Redirect(w, r, "/archive.tar.gz", http.StatusFound)
+		case "/archive.tar.gz":
+			w.Write([]byte("repository snapshot"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	p := sourceRecipe(t)
+	p.Source = Source{Provider: "github", URL: srv.URL, Repository: "owner/repo", Ref: "main"}
+	p.Build.Dependencies = nil
+	source := HTTPSource{Client: srv.Client()}
+	release, err := source.Resolve(context.Background(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "source.tar.gz")
+	if err := source.Download(context.Background(), p, release, dest); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil || string(data) != "repository snapshot" {
+		t.Fatalf("repository archive = %q, %v", data, err)
+	}
+}
+
+func TestHTTPSourceGitHubReleaseDownloadKeepsBinaryAccept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Accept") != "application/octet-stream" {
+			http.Error(w, "binary release asset required", http.StatusUnsupportedMediaType)
+			return
+		}
+		w.Write([]byte("release asset"))
+	}))
+	defer srv.Close()
+	p := acquisitionPlugin()
+	p.Source.URL = srv.URL
+	source := HTTPSource{Client: srv.Client()}
+	dest := filepath.Join(t.TempDir(), "plugin.zip")
+	release := Release{Asset: Asset{Name: "plugin.zip", URL: srv.URL + "/plugin.zip"}}
+	if err := source.Download(context.Background(), p, release, dest); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil || string(data) != "release asset" {
+		t.Fatalf("release asset = %q, %v", data, err)
+	}
+}
+
+func TestHTTPSourceRepositoryLookupFailureIdentifiesRevision(t *testing.T) {
+	for _, test := range []struct {
+		name, repository, ref string
+		include               bool
+	}{
+		{"primary", "source/plugins/battleground", "main", false},
+		{"include", "source/plugins/multicolors", "master", true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if test.include && r.URL.EscapedPath() == "/api/v4/projects/source%2Fplugins%2Fbattleground/repository/commits/main" {
+					json.NewEncoder(w).Encode(map[string]string{"id": strings.Repeat("a", 40)})
+					return
+				}
+				http.NotFound(w, r)
+			}))
+			defer srv.Close()
+			p := sourceRecipe(t)
+			p.Source.URL = srv.URL
+			p.Build.Dependencies = nil
+			if test.include {
+				p.Build.Dependencies = []BuildDependency{{
+					Source:      Source{Provider: "gitlab", URL: srv.URL, Repository: test.repository, Credential: "gitlab", Ref: test.ref},
+					IncludeDirs: []string{"include"},
+				}}
+			}
+			source := HTTPSource{Client: srv.Client(), Credentials: map[string]string{"gitlab": "private-secret"}}
+			_, err := source.Resolve(context.Background(), p)
+			if err == nil || !strings.Contains(err.Error(), test.repository) || !strings.Contains(err.Error(), test.ref) || !strings.Contains(err.Error(), "HTTP 404") {
+				t.Fatalf("lookup error must identify repository, ref and HTTP status: %v", err)
+			}
+		})
+	}
+}
+
 func TestHTTPSourceRepositoryRejectsMalformedCommit(t *testing.T) {
 	for _, bad := range []string{"", "main", strings.Repeat("z", 40), strings.Repeat("a", 39), "../secret"} {
 		t.Run(bad, func(t *testing.T) {

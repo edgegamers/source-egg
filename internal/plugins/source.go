@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"strings"
@@ -56,7 +57,7 @@ func (s HTTPSource) resolveRevision(ctx context.Context, source Source) (Revisio
 	}
 	response, err := s.request(ctx, endpoint, base, token, "application/json")
 	if err != nil {
-		return Revision{}, err
+		return Revision{}, fmt.Errorf("repository %s ref %s: %w", source.Repository, ref, err)
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxReleaseMetadata+1))

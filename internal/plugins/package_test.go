@@ -17,6 +17,7 @@ type packageEntry struct {
 	mode       os.FileMode
 	kind       byte
 	size       int64
+	pax        map[string]string
 }
 
 func packageZIP(t *testing.T, entries []packageEntry) string {
@@ -69,7 +70,11 @@ func packageTar(t *testing.T, entries []packageEntry) string {
 		if entry.size != 0 {
 			size = entry.size
 		}
-		if err := writer.WriteHeader(&tar.Header{Name: entry.name, Mode: 0644, Size: size, Typeflag: kind, Linkname: "elsewhere"}); err != nil {
+		header := &tar.Header{Name: entry.name, Mode: 0644, Size: size, Typeflag: kind, Linkname: "elsewhere", PAXRecords: entry.pax}
+		if kind == tar.TypeXGlobalHeader {
+			header = &tar.Header{Name: entry.name, Typeflag: kind, PAXRecords: entry.pax}
+		}
+		if err := writer.WriteHeader(header); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := io.WriteString(writer, entry.body); err != nil {
@@ -155,6 +160,18 @@ func TestPreparePackageSupportsTarAndRawRenaming(t *testing.T) {
 			t.Fatalf("mapped files=%#v", files)
 		}
 	})
+}
+
+func TestPreparePackageRejectsSparseGlobalPAXMetadata(t *testing.T) {
+	archive := packageTar(t, []packageEntry{
+		{name: "pax_global_header", kind: tar.TypeXGlobalHeader, pax: map[string]string{"GNU.sparse.major": "1"}},
+		{name: "release/addons/plugin.smx", body: "plugin"},
+	})
+	p := packageRecipe()
+	p.Format = "tar.gz"
+	if _, err := PreparePackage(archive, filepath.Join(t.TempDir(), "stage"), p, "package.tar.gz"); err == nil {
+		t.Fatal("sparse global PAX metadata accepted")
+	}
 }
 
 func TestPreparePackageRejectsUnsafeArchiveEntriesEvenWhenUnmapped(t *testing.T) {
