@@ -49,4 +49,4 @@
 - [x] Document automatic mode, pins, conflicts, explicit action behavior and restart timing; opt this server into automatic tracking.
 - [x] Run `go test -race ./...`, `go vet ./...`, `CGO_ENABLED=0 go build ./cmd/...`, formatting and manifest validation.
 - [x] Commit the feature and docs; record the completion contract in the execution ledger.
-- [ ] Obtain a fresh whole-branch review, fix actionable findings with RED→GREEN tests, push and open a PR.
+- [x] Obtain a fresh whole-branch review, fix actionable findings with RED→GREEN tests, push and open a PR.
