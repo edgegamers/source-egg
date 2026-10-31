@@ -80,6 +80,13 @@ func (m *Manager) command(ctx context.Context, f []string, line string) error {
 			} else if p.Pin != "" {
 				s += " pin=" + p.Pin
 			}
+			if tracked {
+				if m.autoApprove(p) {
+					s += " approval=auto"
+				} else {
+					s += " approval=manual"
+				}
+			}
 			if tracked && p.Build != nil {
 				ref := p.Source.Ref
 				if ref == "" {

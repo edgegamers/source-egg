@@ -2,7 +2,7 @@
 
 Server owners can manage third-party release packages and build SourcePawn plugins directly from repositories through the panel file manager and console. This works in standalone and node-managed servers; packages, credentials, toolchains, approvals and rollback files stay in the server's private volume. No node access is needed.
 
-The manager checks at startup and every six hours by default. It downloads and previews available versions, then waits for approval of an exact package. Approved installs, updates, rollbacks and removals happen before the game launches on the next normal restart. It never hot reloads plugins or forces a restart. Failed release checks keep the installed files usable.
+The manager checks at startup and every six hours by default. Manual manifests wait for approval of an exact package. Set `"auto_approve": true` to automatically queue successful downloads/builds for installation. Installs, updates, rollbacks and removals happen before the game launches during normal startup. Checks while the game runs only stage and queue packages; they never hot reload plugins or force a restart. Failed checks and builds keep installed files usable.
 
 ## Configuration
 
@@ -98,6 +98,56 @@ The third release asset is a loose `simple-chat.smx`, with no archive. Its `from
 
 Mappings can place files below `addons`, `cfg`, `scripts`, `materials`, `models`, `sound`, `resource` and `maps`. A package can contain extensions, translations, gamedata and default configuration along with plugins. Missing sources, duplicate destinations, ambiguous assets, traversal, archive links, special files and oversized packages are rejected. Downloads are limited to 256 MiB, expanded archives to 512 MiB, individual files to 64 MiB and archive entries to 10,000. Ordinary ZIP archives are supported; ZIP64, multi-disk and self-extracting executable ZIP layouts are rejected. Release recipes do not compile source. No repository/install scripts run and runtime dependencies are not installed automatically.
 
+## Automatic installation and pins
+
+Add `"auto_approve": true` beside `version` in the existing manifest to cover
+first installs and updates without per-version console approvals:
+
+```json
+{
+  "version": 1,
+  "check_interval_hours": 6,
+  "auto_approve": true,
+  "plugins": []
+}
+```
+
+Keep your existing entries in `plugins`. Omitting `auto_approve` or setting it
+to `false` retains manual approval. A plugin's own `"auto_approve": false` or
+`true` overrides the manifest policy. `egg plugins list` shows the effective
+`approval=auto` or `approval=manual` for each tracked entry.
+
+The automatic flow is: check, download/build, verify the staged package, queue
+it, and install before the game starts. Ready cached packages also qualify
+after switching to automatic mode, including when the provider is offline.
+Packages successfully prepared during startup can install on that launch.
+Startup checks retain a shared 30-second budget; longer source builds retry
+in the background and their completed packages wait for the next normal restart.
+Only the newest successfully staged automatic snapshot is queued; a failed
+newer check/build retains the previous valid package and installed files.
+
+Version selection works independently of approval policy. For release assets,
+use `pin` for an exact release tag. For source builds, use `source.ref` for a
+branch, tag or full commit SHA. Pin every include dependency's `source.ref` to
+a full commit too when reproducible source inputs are required. Changing a pin
+selects a new version for the same automatic installation flow. Missing pins
+never fall back to latest. Without exact pins, configured branches and release
+channels continue tracking updates.
+
+Automatic installs still block on unowned file collisions, framework ownership,
+or locally edited managed code. They never imply `replace` or adoption. Fix the
+conflict through the existing preview/keep/adopt/explicit-approval workflow.
+Config, data, logs and other preserved paths retain their existing behavior.
+
+Explicit pending installs, rollbacks and uninstalls take precedence for that
+startup. Later automatic checks follow the configured source again: disable
+automatic approval or pin the desired revision when holding a rollback, and
+remove a recipe when uninstalling a tracked package permanently. Turning auto
+off cancels automatic pending actions while retaining staging and explicit
+approvals. `cancel` removes a queued action, but a later check can queue it again
+while automatic mode remains enabled. Policy edits alone do not change package
+IDs or invalidate explicit approvals.
+
 ## Build directly from a repository
 
 Give each repository its own plugin entry. Adding `build` selects source mode:
@@ -118,7 +168,7 @@ places the resulting plugins in the active directory:
     "url": "https://gitlab.edgegamers.io",
     "repository": "source/plugins/counter-strike/dxlevel-restrict",
     "credential": "edgegamers-gitlab",
-    "ref": "main"
+    "ref": "master"
   },
   "build": {
     "sourcemod": "1.13.0.7478",
@@ -161,10 +211,11 @@ Source checks have a five-minute budget per repository and each compiler process
 has a one-minute limit. Startup retains its overall 30-second check budget;
 timed-out source builds retry in the background scheduler after the game starts.
 An unchanged, intact available build is reused. Build errors retain installed
-files and earlier staged packages. Approvals still bind exact bytes and recipes;
-a later commit does not change an already approved pending install. Source
-packages use the same preview, approval, normal-restart installation, local-edit
-protection, rollback and removal commands as release packages.
+files and earlier staged packages. Explicit approvals still bind exact bytes and
+recipes; a later commit does not change an explicitly approved pending install.
+Source packages use the same automatic/manual approval policy, normal-startup
+installation, local-edit protection, rollback and removal commands as release
+packages.
 
 The manager executes only the compiler from the selected official toolchain,
 with fixed arguments, a minimal environment, bounded diagnostics and named
@@ -189,7 +240,7 @@ The `source.credential` value refers to a key in this object. Use a project or p
 
 Keep this file private in the panel; do not put tokens in console commands, repository URLs or the manifest. The manager does not put tokens in the game process environment or shared node cache. Installed game plugins run as the server user and can read server files, including this credentials file; install code you trust. GitHub acquisition supports public release assets.
 
-## Check, review and approve
+## Check, review and approve manually
 
 Enter commands in the panel console, one complete line at a time:
 
@@ -202,13 +253,13 @@ egg plugins preview match-tools
 egg plugins approve match-tools <snapshot-id>
 ```
 
-Replace `<snapshot-id>` with the full 64-character SHA-256 package ID printed by `preview`. Review every mapped path and any collision or modification notices. Approval binds that exact staged content and recipe; it does not approve whatever upstream publishes later. `egg plugins update match-tools <snapshot-id>` is an alias for `approve`.
+These approval commands are optional in automatic mode. Replace `<snapshot-id>` with the full 64-character SHA-256 package ID printed by `preview`. Review every mapped path and any collision or modification notices. An explicit approval binds that exact staged content and recipe; it does not approve whatever upstream publishes later. `egg plugins update match-tools <snapshot-id>` is an alias for `approve`.
 
 To cancel a queued install, rollback or uninstall before restarting, run `egg plugins cancel match-tools`. Cancellation retains the staged package and existing game files.
 
 Restart through the panel when ready. The startup notice reports completion, and update notices name available and installed versions. All `SourceEgg | Plugins |` messages remain visible even when the console filter or log level hides ordinary lines. The masked messages also go to local logs and configured node console delivery.
 
-Changing a mapping or other recipe setting invalidates its earlier approval. Run `check`, inspect the new `preview`, and approve the new exact ID. When the managed path set changes, review the new preview before approving its exact package ID. Editing `.source/plugins.json` is supported while the game runs; checks and commands reload it. If malformed configuration prevents initialization, the game can still start: fix the file and issue a plugin command to retry. Restart to resume automatic checks. An unrecoverable interrupted file transaction prevents startup until it is repaired.
+Changing a mapping or other content recipe setting invalidates its earlier approval. Run `check`; automatic mode validates and queues the new package, while manual mode waits for preview/approval of the new exact ID. Approval policy changes alone retain package identities. Editing `.source/plugins.json` is supported while the game runs; checks and commands reload it. If malformed configuration prevents initialization, the game can still start: fix the file and issue a plugin command to retry. Restart to resume scheduled checks. An unrecoverable interrupted file transaction prevents startup until it is repaired.
 
 You can add a recipe through the console instead of editing the manifest. The JSON object must fit on one line:
 

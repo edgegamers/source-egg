@@ -74,7 +74,7 @@ func New(volume, gameDir string, source ReleaseSource, notice func(string)) (*Ma
 				return nil, errors.New("invalid pending preservation path")
 			}
 		}
-		if !identifier.MatchString(id) || !validSnapshotReference(p.Snapshot) || (p.Kind != "install" && p.Kind != "rollback" && p.Kind != "uninstall") {
+		if !identifier.MatchString(id) || !validSnapshotReference(p.Snapshot) || (p.Kind != "install" && p.Kind != "rollback" && p.Kind != "uninstall") || (p.Automatic && (p.Kind != "install" || p.Replace)) {
 			return nil, errors.New("invalid pending plugin action")
 		}
 	}
@@ -111,6 +111,19 @@ func (m *Manager) Startup(ctx context.Context) error {
 		m.emit("Configuration error; keeping installed plugins: " + e.Error())
 		return nil
 	}
+	// Discover before applying so successful automatic builds can install on
+	// this launch. Explicit pending actions remain present during discovery.
+	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	m.check(checkCtx, "")
+	cancel()
+	if err := m.applyPending(); err != nil {
+		return err
+	}
+	m.collect()
+	return nil
+}
+
+func (m *Manager) applyPending() error {
 	ids := make([]string, 0, len(m.state.Pending))
 	for id := range m.state.Pending {
 		ids = append(ids, id)
@@ -157,6 +170,9 @@ func (m *Manager) Startup(ctx context.Context) error {
 			continue
 		}
 		delete(m.state.Pending, id)
+		if a.Kind != "uninstall" && m.state.Available[id].ID == a.Snapshot.ID {
+			delete(m.state.Available, id)
+		}
 		m.emit(id + ": " + a.Kind + " completed")
 		if e = m.save(); e != nil {
 			m.emit("Cannot save plugin action state: " + e.Error())
@@ -167,9 +183,6 @@ func (m *Manager) Startup(ctx context.Context) error {
 		m.emit("Cannot save plugin state: " + e.Error())
 		return nil
 	}
-	checkCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	m.check(checkCtx, "")
 	return nil
 }
 
@@ -202,6 +215,16 @@ func (m *Manager) check(ctx context.Context, id string) {
 	if e != nil {
 		m.emit("Cannot read installed plugin state: " + e.Error())
 		return
+	}
+	// Queue every already-ready package before network checks can consume the
+	// startup budget, including when the configured provider is unavailable.
+	for _, p := range m.manifest.Plugins {
+		if id != "" && p.ID != id {
+			continue
+		}
+		if snapshot, ok := m.state.Available[p.ID]; ok && snapshot.ID != installed[p.ID].Current.ID {
+			m.queueAutomatic(p, snapshot)
+		}
 	}
 	for _, p := range m.manifest.Plugins {
 		if ctx.Err() != nil {
@@ -237,7 +260,11 @@ func (m *Manager) checkPlugin(ctx context.Context, p Plugin, old Snapshot) {
 	if e != nil {
 		m.emit(p.ID + ": update check failed; keeping installed files: " + e.Error())
 		if cached, ok := m.state.Available[p.ID]; ok && cached.Recipe == recipeHash(p) {
-			m.emit(p.ID + ": previously staged version " + cached.Version + " remains available; run egg plugins preview " + p.ID)
+			message := p.ID + ": previously staged version " + cached.Version + " remains available"
+			if !m.autoApprove(p) {
+				message += "; run egg plugins preview " + p.ID
+			}
+			m.emit(message)
 		}
 		return
 	}
@@ -247,12 +274,17 @@ func (m *Manager) checkPlugin(ctx context.Context, p Plugin, old Snapshot) {
 	}
 	if release.Version == old.Version && old.Recipe == recipeHash(p) {
 		delete(m.state.Available, p.ID)
+		m.clearAutomatic(p.ID)
 		m.emit(p.ID + ": installed " + old.Version + " is current")
 		return
 	}
 	if p.Build != nil {
 		if cached, ok := m.state.Available[p.ID]; ok && cached.Version == release.Version && cached.Recipe == recipeHash(p) && m.cachedSourceExists(cached) {
-			m.emit(p.ID + ": staged " + cached.Version + " remains available; run egg plugins preview " + p.ID)
+			message := p.ID + ": staged " + cached.Version + " remains available"
+			if !m.autoApprove(p) {
+				message += "; run egg plugins preview " + p.ID
+			}
+			m.emit(message)
 			return
 		}
 	}
@@ -266,9 +298,14 @@ func (m *Manager) checkPlugin(ctx context.Context, p Plugin, old Snapshot) {
 	if current == "" {
 		current = "not managed"
 	}
-	m.emit(p.ID + ": new version " + snap.Version + " available (installed: " + current + "); run egg plugins preview " + p.ID)
+	if m.autoApprove(p) {
+		m.emit(p.ID + ": version " + snap.Version + " ready (installed: " + current + ")")
+		m.queueAutomatic(p, snap)
+	} else {
+		m.emit(p.ID + ": new version " + snap.Version + " available (installed: " + current + "); run egg plugins preview " + p.ID)
+	}
 	if len(old.Files) > 0 && !sameLayout(old, snap) {
-		m.emit(p.ID + ": package layout changed; review all mapped paths before approving this package")
+		m.emit(p.ID + ": package layout changed; run egg plugins preview " + p.ID + " to inspect mapped paths")
 	}
 }
 
