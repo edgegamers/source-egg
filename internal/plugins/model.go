@@ -22,18 +22,30 @@ type Manifest struct {
 type Plugin struct {
 	ID         string    `json:"id"`
 	Source     Source    `json:"source"`
-	Asset      string    `json:"asset"`
+	Asset      string    `json:"asset,omitempty"`
 	Format     string    `json:"format,omitempty"`
 	Mappings   []Mapping `json:"mappings"`
 	Preserve   []string  `json:"preserve,omitempty"`
 	Pin        string    `json:"pin,omitempty"`
 	Prerelease bool      `json:"prerelease,omitempty"`
+	Build      *Build    `json:"build,omitempty"`
 }
 type Source struct {
 	Provider   string `json:"provider"`
 	Repository string `json:"repository"`
 	URL        string `json:"url,omitempty"`
 	Credential string `json:"credential,omitempty"`
+	Ref        string `json:"ref,omitempty"`
+}
+type Build struct {
+	SourceMod    string            `json:"sourcemod"`
+	Sources      []string          `json:"sources"`
+	IncludeDirs  []string          `json:"include_dirs,omitempty"`
+	Dependencies []BuildDependency `json:"dependencies,omitempty"`
+}
+type BuildDependency struct {
+	Source      Source   `json:"source"`
+	IncludeDirs []string `json:"include_dirs"`
 }
 type Mapping struct {
 	From string `json:"from"`
@@ -45,9 +57,14 @@ type Asset struct {
 	SHA256 string `json:"sha256,omitempty"`
 }
 type Release struct {
-	Version string `json:"version"`
-	ID      string `json:"id"`
-	Asset   Asset  `json:"asset"`
+	Version      string     `json:"version"`
+	ID           string     `json:"id"`
+	Asset        Asset      `json:"asset"`
+	Dependencies []Revision `json:"dependencies,omitempty"`
+}
+type Revision struct {
+	Commit string `json:"commit"`
+	Asset  Asset  `json:"asset"`
 }
 type File struct {
 	SHA256 string `json:"sha256"`
@@ -121,44 +138,31 @@ func ValidatePlugin(p Plugin) error {
 	if !identifier.MatchString(p.ID) {
 		return fmt.Errorf("invalid plugin id")
 	}
-	if p.Source.Provider != "github" && p.Source.Provider != "gitlab" {
-		return fmt.Errorf("%s: provider must be github or gitlab", p.ID)
+	if err := validateSource(p.Source); err != nil {
+		return fmt.Errorf("%s: %w", p.ID, err)
 	}
-	parts := strings.Split(p.Source.Repository, "/")
-	if len(parts) < 2 || (p.Source.Provider == "github" && len(parts) != 2) {
-		return fmt.Errorf("%s: repository must be an owner/project path", p.ID)
-	}
-	for _, part := range parts {
-		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, " ?#%\\:@\r\n\t") {
-			return fmt.Errorf("%s: invalid repository path", p.ID)
+	if p.Build != nil {
+		if p.Asset != "" || p.Format != "" || p.Pin != "" || p.Prerelease {
+			return fmt.Errorf("%s: source builds cannot select release assets, formats, pins or prereleases; use source.ref", p.ID)
 		}
-	}
-	if p.Source.URL != "" {
-		u, e := url.Parse(p.Source.URL)
-		if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return fmt.Errorf("%s: invalid provider URL", p.ID)
+		if err := validateBuild(*p.Build); err != nil {
+			return fmt.Errorf("%s: %w", p.ID, err)
 		}
-		local := u.Hostname() == "localhost"
-		if ip := net.ParseIP(u.Hostname()); ip != nil {
-			local = ip.IsLoopback()
+	} else {
+		if p.Source.Ref != "" {
+			return fmt.Errorf("%s: source.ref requires a build recipe", p.ID)
 		}
-		if u.Scheme != "https" && !(u.Scheme == "http" && local) {
-			return fmt.Errorf("%s: provider requires HTTPS", p.ID)
+		if p.Asset == "" || strings.ContainsAny(p.Asset, "/\\\x00\r\n") {
+			return fmt.Errorf("%s: asset must select a filename", p.ID)
 		}
-	}
-	if p.Source.Credential != "" && (!identifier.MatchString(p.Source.Credential) || p.Source.Provider != "gitlab") {
-		return fmt.Errorf("%s: credentials require a named GitLab credential", p.ID)
-	}
-	if p.Asset == "" || strings.ContainsAny(p.Asset, "/\\\x00\r\n") {
-		return fmt.Errorf("%s: asset must select a filename", p.ID)
-	}
-	if _, e := path.Match(p.Asset, "probe"); e != nil {
-		return fmt.Errorf("%s: invalid asset pattern", p.ID)
-	}
-	switch p.Format {
-	case "", "auto", "zip", "tar.gz", "raw":
-	default:
-		return fmt.Errorf("%s: unsupported package format", p.ID)
+		if _, e := path.Match(p.Asset, "probe"); e != nil {
+			return fmt.Errorf("%s: invalid asset pattern", p.ID)
+		}
+		switch p.Format {
+		case "", "auto", "zip", "tar.gz", "raw":
+		default:
+			return fmt.Errorf("%s: unsupported package format", p.ID)
+		}
 	}
 	if len(p.Mappings) == 0 || len(p.Mappings) > 100 {
 		return fmt.Errorf("%s: provide 1–100 file mappings", p.ID)
@@ -175,6 +179,41 @@ func ValidatePlugin(p Plugin) error {
 	}
 	if len(p.Pin) > 200 || strings.ContainsAny(p.Pin, "\x00\r\n") {
 		return fmt.Errorf("%s: invalid version pin", p.ID)
+	}
+	return nil
+}
+
+func validateSource(s Source) error {
+	if s.Provider != "github" && s.Provider != "gitlab" {
+		return fmt.Errorf("provider must be github or gitlab")
+	}
+	parts := strings.Split(s.Repository, "/")
+	if len(parts) < 2 || (s.Provider == "github" && len(parts) != 2) {
+		return fmt.Errorf("repository must be an owner/project path")
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, " ?#%\\:@\r\n\t") {
+			return fmt.Errorf("invalid repository path")
+		}
+	}
+	if s.URL != "" {
+		u, e := url.Parse(s.URL)
+		if e != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("invalid provider URL")
+		}
+		local := u.Hostname() == "localhost"
+		if ip := net.ParseIP(u.Hostname()); ip != nil {
+			local = ip.IsLoopback()
+		}
+		if u.Scheme != "https" && !(u.Scheme == "http" && local) {
+			return fmt.Errorf("provider requires HTTPS")
+		}
+	}
+	if s.Credential != "" && (!identifier.MatchString(s.Credential) || s.Provider != "gitlab") {
+		return fmt.Errorf("credentials require a named GitLab credential")
+	}
+	if len(s.Ref) > 200 || strings.HasPrefix(s.Ref, "/") || strings.HasSuffix(s.Ref, "/") || strings.HasPrefix(s.Ref, "-") || strings.Contains(s.Ref, "..") || strings.Contains(s.Ref, "@{") || strings.ContainsAny(s.Ref, " \\~^:?*[\x00\r\n\t") {
+		return fmt.Errorf("invalid repository ref")
 	}
 	return nil
 }

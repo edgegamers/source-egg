@@ -24,8 +24,8 @@ import (
 const maxPluginDownload = int64(256 << 20)
 const maxReleaseMetadata = int64(8 << 20)
 
-// HTTPSource acquires release assets without executing package code. Credentials
-// are per-server GitLab personal access tokens, keyed by Source.Credential.
+// HTTPSource acquires release assets and immutable repository archives without
+// executing package code. GitLab credentials are keyed by Source.Credential.
 type HTTPSource struct {
 	Client      *http.Client
 	Credentials map[string]string
@@ -69,6 +69,9 @@ var acquisitionPreTag = regexp.MustCompile(`^[vV]?[0-9]+\.[0-9]+(?:\.[0-9]+)?-[0
 func (s HTTPSource) Resolve(ctx context.Context, p Plugin) (Release, error) {
 	if err := ValidatePlugin(p); err != nil {
 		return Release{}, err
+	}
+	if p.Build != nil {
+		return s.resolveBuild(ctx, p)
 	}
 	base, token, err := s.connection(p)
 	if err != nil {

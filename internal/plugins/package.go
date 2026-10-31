@@ -107,7 +107,11 @@ func PreparePackage(archive, dest string, p Plugin, assetName string) (map[strin
 	if err != nil {
 		return nil, err
 	}
-	targets, err := extracted.mapFiles(p)
+	return extracted.publish(parent, name, p)
+}
+
+func (e *packageExtraction) publish(parent *os.Root, name string, p Plugin) (map[string]File, error) {
+	targets, err := e.mapFiles(p)
 	if err != nil {
 		return nil, err
 	}
@@ -132,11 +136,11 @@ func PreparePackage(archive, dest string, p Plugin, assetName string) (map[strin
 		if err = stage.MkdirAll(path.Dir(target), 0755); err != nil {
 			return nil, err
 		}
-		in, err := work.Open(from)
+		in, err := e.root.Open(from)
 		if err != nil {
 			return nil, err
 		}
-		member := extracted.members[from]
+		member := e.members[from]
 		out, err := stage.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, member.mode)
 		if err != nil {
 			in.Close()

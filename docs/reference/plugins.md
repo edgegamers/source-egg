@@ -1,6 +1,6 @@
 # Per-server plugins
 
-Server owners can manage third-party plugin packages through the panel file manager and console. This works in standalone and node-managed servers; packages, credentials, approvals and rollback files stay in the server's private volume. No node access is needed.
+Server owners can manage third-party release packages and build SourcePawn plugins directly from repositories through the panel file manager and console. This works in standalone and node-managed servers; packages, credentials, toolchains, approvals and rollback files stay in the server's private volume. No node access is needed.
 
 The manager checks at startup and every six hours by default. It downloads and previews available versions, then waits for approval of an exact package. Approved installs, updates, rollbacks and removals happen before the game launches on the next normal restart. It never hot reloads plugins or forces a restart. Failed release checks keep the installed files usable.
 
@@ -96,7 +96,84 @@ The third release asset is a loose `simple-chat.smx`, with no archive. Its `from
 
 `asset` accepts an exact filename or a glob, but it must match exactly one release asset. `format` accepts `zip`, `tar.gz`, `raw` or `auto`; omitting it uses extension detection. Stable releases are selected by default. Set `prerelease` to `true` to allow prereleases, or add `"pin": "v1.2.3"` for an exact release tag. GitLab prerelease filtering recognizes semver-style suffixes such as `v1.2.3-rc.1`; use a pin for repositories with other preview-tag conventions. A missing pinned tag does not fall back to latest. `check_interval_hours` accepts 1–8760; omitted or zero means six hours. A manifest supports up to 100 registered recipes. `source.url` overrides the provider base URL: a GitHub API base or a GitLab instance origin.
 
-Mappings can place files below `addons`, `cfg`, `scripts`, `materials`, `models`, `sound`, `resource` and `maps`. A package can contain extensions, translations, gamedata and default configuration along with plugins. Missing sources, duplicate destinations, ambiguous assets, traversal, archive links, special files and oversized packages are rejected. Downloads are limited to 256 MiB, expanded archives to 512 MiB, individual files to 64 MiB and archive entries to 10,000. Ordinary ZIP archives are supported; ZIP64, multi-disk and self-extracting executable ZIP layouts are rejected. No install scripts run, source code is not compiled, and dependencies are not installed automatically.
+Mappings can place files below `addons`, `cfg`, `scripts`, `materials`, `models`, `sound`, `resource` and `maps`. A package can contain extensions, translations, gamedata and default configuration along with plugins. Missing sources, duplicate destinations, ambiguous assets, traversal, archive links, special files and oversized packages are rejected. Downloads are limited to 256 MiB, expanded archives to 512 MiB, individual files to 64 MiB and archive entries to 10,000. Ordinary ZIP archives are supported; ZIP64, multi-disk and self-extracting executable ZIP layouts are rejected. Release recipes do not compile source. No repository/install scripts run and runtime dependencies are not installed automatically.
+
+## Build directly from a repository
+
+Give each repository its own plugin entry. Adding `build` selects source mode:
+SourceEgg resolves `source.ref` to an exact commit, downloads that commit's source
+archive, and runs a pinned SourceMod compiler in private staging. No GitLab CI
+pipeline or published plugin release is required. Both GitLab and public GitHub
+repositories are supported. GitLab authentication uses the credentials described
+below; use a token with `read_api` and access to each plugin/include repository.
+
+For example, this entry compiles every `.sp` directly inside `scripting`, and
+places the resulting plugins in the active directory:
+
+```json
+{
+  "id": "dxlevel-restrict",
+  "source": {
+    "provider": "gitlab",
+    "url": "https://gitlab.edgegamers.io",
+    "repository": "source/plugins/counter-strike/dxlevel-restrict",
+    "credential": "edgegamers-gitlab",
+    "ref": "main"
+  },
+  "build": {
+    "sourcemod": "1.13.0.7478",
+    "sources": ["scripting/*.sp"]
+  },
+  "mappings": [
+    {"from": "compiled", "to": "addons/sourcemod/plugins"}
+  ]
+}
+```
+
+This uses a repository path from the example CS:S Dockerfile; confirm its branch
+and source layout before use. The [complete source manifest example](../examples/plugins-source.json)
+also shows a disabled plugin, gamedata, and a private include dependency. Private
+repositories require your credentials and have not been live-build validated.
+
+Source recipes omit `asset`, `format`, `pin`, and `prerelease`. `source.ref`
+defaults to `main`, and accepts a branch, tag or full commit ID. Use an exact
+commit to freeze a source version. A build's version records its primary commit
+and a digest covering the compiler tag and all resolved include commits, so an
+include-only update can produce a new available build.
+
+| Build field | Meaning |
+| --- | --- |
+| `sourcemod` | Required exact SourceMod release tag, such as `1.13.0.7478`. The compiler and standard includes come from its official Linux release archive. Choose a version compatible with the installed server; this does not upgrade its frameworks. Historical builds without a published GitHub release asset cannot be selected. |
+| `sources` | Required 1–100 repository-relative `.sp` paths or glob patterns. Patterns are sorted, must match files, and can select at most 100 files in total. Globs do not recursively traverse directories. |
+| `include_dirs` | Optional list of up to 100 include directories in the main repository. `.` is allowed. Each source's own directory and the toolchain's standard includes are searched too. |
+| `dependencies` | Optional list of up to 20 include dependencies. Each has a `source` object and 1–100 `include_dirs` relative to that dependency's repository root. Dependencies do not compile or install runtime files. |
+
+The provider's single archive wrapper directory is removed for source builds.
+Every selected `path/name.sp` produces `compiled/name.smx`. Duplicate basenames,
+missing inputs/includes, symlinks and an existing repository `compiled` path are
+rejected. The `.smx` output must have SourcePawn binary magic and meet the normal
+64 MiB file limit. Map `compiled/name.smx` to a specific destination to rename
+it, or to `addons/sourcemod/plugins/disabled/name.smx` to keep it disabled. Map
+gamedata, translations and config from their original repository-relative paths;
+there is no implicit layout detection or asset installation.
+
+Source checks have a five-minute budget per repository and each compiler process
+has a one-minute limit. Startup retains its overall 30-second check budget;
+timed-out source builds retry in the background scheduler after the game starts.
+An unchanged, intact available build is reused. Build errors retain installed
+files and earlier staged packages. Approvals still bind exact bytes and recipes;
+a later commit does not change an already approved pending install. Source
+packages use the same preview, approval, normal-restart installation, local-edit
+protection, rollback and removal commands as release packages.
+
+The manager executes only the compiler from the selected official toolchain,
+with fixed arguments, a minimal environment, bounded diagnostics and named
+credential redaction. This staging workspace is not an OS security sandbox:
+compile source you trust. Git hooks, shell/build scripts, submodule fetching,
+native extension compilation and automatic dependency solving are unsupported.
+Source packages cannot overwrite framework-owned stock plugin filenames or
+translations; use separately named resources/plugins with the stock equivalent
+disabled, or maintain your existing custom framework separately.
 
 ## Private GitLab releases
 
