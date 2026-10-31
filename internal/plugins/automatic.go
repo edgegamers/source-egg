@@ -35,14 +35,21 @@ func (m *Manager) clearAutomatic(id string) {
 }
 
 // Queue only verified staging and retain all existing ownership and edit
-// checks. Manual approvals, rollback and uninstall take precedence.
+// checks. Valid manual approvals, rollback and uninstall take precedence.
 func (m *Manager) queueAutomatic(p Plugin, snapshot Snapshot) {
 	if !m.autoApprove(p) || snapshot.Recipe != recipeHash(p) {
 		return
 	}
 	pending, exists := m.state.Pending[p.ID]
 	if exists && !pending.Automatic {
-		return
+		if pending.Kind == "uninstall" || pending.Recipe == snapshot.Recipe {
+			return
+		}
+		// A content edit (including a changed pin) already invalidates this
+		// explicit approval. It must not delay the newly eligible auto build.
+		delete(m.state.Pending, p.ID)
+		exists = false
+		m.emit(p.ID + ": approval cancelled because its recipe changed")
 	}
 	if _, err := m.installer.Preview(p.ID, &snapshot, false); err != nil {
 		m.clearAutomatic(p.ID)

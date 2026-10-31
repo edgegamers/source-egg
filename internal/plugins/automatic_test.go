@@ -269,6 +269,26 @@ func TestAutomaticInstallsRespectExplicitPendingActions(t *testing.T) {
 	}
 }
 
+func TestAutomaticChangedPinIsNotBlockedByStaleManualApproval(t *testing.T) {
+	m, source, volume, notices := managerFixture(t)
+	m.Command(context.Background(), "egg plugins check")
+	m.Command(context.Background(), "egg plugins approve demo "+m.state.Available["demo"].ID)
+	manifest := m.manifest
+	manifest.Plugins[0].Pin = "v2"
+	data, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(volume, manifestPath), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	setAutomaticPolicy(t, volume, true, nil)
+	source.version, source.body = "v2", "two"
+	if err := m.Startup(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := automaticInstalled(t, m, "demo").Version; got != "v2" {
+		t.Fatalf("stale explicit approval blocked changed pin: got %q; %s", got, notices)
+	}
+}
+
 func TestAutomaticInstallBlocksUnownedFilesAndLocalEdits(t *testing.T) {
 	for _, installed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "unowned file", true: "local edit"}[installed], func(t *testing.T) {

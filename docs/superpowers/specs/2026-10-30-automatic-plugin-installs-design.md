@@ -31,8 +31,10 @@ Ready packages can install on that startup, including cached packages when the
 provider is unavailable. Source builds exceeding the startup budget retry in
 the background and wait for the next normal restart.
 
-Explicit manual install/rollback/uninstall actions take precedence for that
-startup. Automatic policy does not supersede them during discovery. Future
+Valid explicit manual install/rollback/uninstall actions take precedence for
+that startup. Automatic policy does not supersede them during discovery. A
+content edit (including a changed pin) invalidates the older approval, allowing
+the new automatic package to install on that startup. Future
 automatic checks follow the configured source again; pin or disable automatic
 approval when intentionally holding a rollback or uninstalling a tracked entry.
 Disabling automatic approval cancels automatic pending actions, preserving

@@ -139,8 +139,10 @@ or locally edited managed code. They never imply `replace` or adoption. Fix the
 conflict through the existing preview/keep/adopt/explicit-approval workflow.
 Config, data, logs and other preserved paths retain their existing behavior.
 
-Explicit pending installs, rollbacks and uninstalls take precedence for that
-startup. Later automatic checks follow the configured source again: disable
+Valid explicit pending installs, rollbacks and uninstalls take precedence for
+that startup. A content recipe edit, including a changed pin, invalidates an
+older approval and allows the newly selected automatic package to install.
+Later automatic checks follow the configured source again: disable
 automatic approval or pin the desired revision when holding a rollback, and
 remove a recipe when uninstalling a tracked package permanently. Turning auto
 off cancels automatic pending actions while retaining staging and explicit
