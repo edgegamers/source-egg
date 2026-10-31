@@ -1,6 +1,7 @@
 {
   "version": 1,
   "check_interval_hours": 6,
+  "auto_approve": true,
   "plugins": [
     {
       "id": "dxlevel-restrict",

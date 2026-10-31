@@ -19,11 +19,12 @@ const credentialsPath = ".source/plugin-credentials.json"
 const statePath = ".source/plugins/state.json"
 
 type pendingAction struct {
-	Kind     string   `json:"kind"`
-	Snapshot Snapshot `json:"snapshot"`
-	Recipe   string   `json:"recipe,omitempty"`
-	Replace  bool     `json:"replace,omitempty"`
-	Preserve []string `json:"preserve,omitempty"`
+	Kind      string   `json:"kind"`
+	Automatic bool     `json:"automatic,omitempty"`
+	Snapshot  Snapshot `json:"snapshot"`
+	Recipe    string   `json:"recipe,omitempty"`
+	Replace   bool     `json:"replace,omitempty"`
+	Preserve  []string `json:"preserve,omitempty"`
 }
 type managerState struct {
 	Version   int                      `json:"version"`
@@ -137,7 +138,7 @@ func (m *Manager) reload() error {
 		}
 		m.source = &HTTPSource{Credentials: creds}
 	}
-	return nil
+	return m.pruneAutomatic()
 }
 func (m *Manager) save() error {
 	r, e := m.root()

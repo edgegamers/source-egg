@@ -17,18 +17,20 @@ import (
 type Manifest struct {
 	Version            int      `json:"version"`
 	CheckIntervalHours int      `json:"check_interval_hours"`
+	AutoApprove        bool     `json:"auto_approve,omitempty"`
 	Plugins            []Plugin `json:"plugins"`
 }
 type Plugin struct {
-	ID         string    `json:"id"`
-	Source     Source    `json:"source"`
-	Asset      string    `json:"asset,omitempty"`
-	Format     string    `json:"format,omitempty"`
-	Mappings   []Mapping `json:"mappings"`
-	Preserve   []string  `json:"preserve,omitempty"`
-	Pin        string    `json:"pin,omitempty"`
-	Prerelease bool      `json:"prerelease,omitempty"`
-	Build      *Build    `json:"build,omitempty"`
+	ID          string    `json:"id"`
+	Source      Source    `json:"source"`
+	Asset       string    `json:"asset,omitempty"`
+	Format      string    `json:"format,omitempty"`
+	Mappings    []Mapping `json:"mappings"`
+	Preserve    []string  `json:"preserve,omitempty"`
+	Pin         string    `json:"pin,omitempty"`
+	Prerelease  bool      `json:"prerelease,omitempty"`
+	Build       *Build    `json:"build,omitempty"`
+	AutoApprove *bool     `json:"auto_approve,omitempty"`
 }
 type Source struct {
 	Provider   string `json:"provider"`
@@ -243,6 +245,8 @@ func (m *Manifest) Validate() error {
 	return nil
 }
 func recipeHash(p Plugin) string {
+	// Approval policy controls deployment, not the staged package's contents.
+	p.AutoApprove = nil
 	b, _ := json.Marshal(p)
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
