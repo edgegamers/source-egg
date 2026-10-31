@@ -230,7 +230,13 @@ func (s HTTPSource) Download(ctx context.Context, p Plugin, release Release, des
 	if release.Asset.SHA256 != "" && !acquisitionDigest(release.Asset.SHA256) {
 		return errors.New("invalid release asset digest")
 	}
-	response, err := s.request(ctx, release.Asset.URL, base, token, "application/octet-stream")
+	accept := "application/octet-stream"
+	if p.Build != nil && p.Source.Provider == "github" {
+		// GitHub's source archive API redirects to the binary download, but
+		// rejects the media type used for release asset downloads.
+		accept = "application/vnd.github+json"
+	}
+	response, err := s.request(ctx, release.Asset.URL, base, token, accept)
 	if err != nil {
 		return err
 	}

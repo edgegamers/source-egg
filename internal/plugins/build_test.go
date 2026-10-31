@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"archive/tar"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -128,8 +129,8 @@ func TestSourceBuilderCompilesMapsAndIncludes(t *testing.T) {
 	t.Setenv("GITLAB_TOKEN", "must-not-be-inherited")
 	p := buildRecipe(t)
 	p.Build.Dependencies = sourceRecipe(t).Build.Dependencies
-	archive := packageTar(t, []packageEntry{{name: "repo-hash/scripting/demo.sp", body: "OK"}, {name: "repo-hash/scripting/include/local.inc", body: "local include"}, {name: "repo-hash/gamedata/demo.txt", body: "offsets"}})
-	dep := packageTar(t, []packageEntry{{name: "dependency-hash/addons/sourcemod/scripting/include/colors.inc", body: "colors"}})
+	archive := packageTar(t, []packageEntry{{name: "pax_global_header", kind: tar.TypeXGlobalHeader, pax: map[string]string{"comment": strings.Repeat("a", 40)}}, {name: "repo-hash/scripting/demo.sp", body: "OK"}, {name: "repo-hash/scripting/include/local.inc", body: "local include"}, {name: "repo-hash/gamedata/demo.txt", body: "offsets"}})
+	dep := packageTar(t, []packageEntry{{name: "pax_global_header", kind: tar.TypeXGlobalHeader, pax: map[string]string{"comment": strings.Repeat("b", 40)}}, {name: "dependency-hash/addons/sourcemod/scripting/include/colors.inc", body: "colors"}})
 	r := Release{Dependencies: []Revision{{Commit: strings.Repeat("b", 40), Asset: Asset{Name: "source.tar.gz"}}}}
 	b := SourceBuilder{CacheDir: t.TempDir(), Compiler: fixtureCompiler(t), Source: buildFixtureSource{archive: dep}}
 	dest := filepath.Join(t.TempDir(), "payload")
