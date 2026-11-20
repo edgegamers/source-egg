@@ -4,7 +4,7 @@ The core, installation flow and operational modules are merged through `7cc3e68`
 
 ## Implemented
 
-- Five game profiles and validated launch/Steam install identities, including current standalone CS:GO app mapping and mixed 32/64-bit dependencies.
+- Six game profiles and validated launch/Steam install identities, including current standalone CS:GO app mapping, GMod public/x86-64 launchers, and mixed 32/64-bit dependencies. GMod skips automatic Metamod/SourceMod installation in favor of its native Lua addon system.
 - Standalone/node-managed boot, including a writable SteamCMD seed for Wings' read-only root and arbitrary UID.
 - Immutable staged base-game generations, read-only VPK delivery, private configs/event files and persistent references.
 - Exact approved-image discovery, profile/boot checks, bounded per-server sockets and root-only operator control.
@@ -48,7 +48,7 @@ The upstream-fork update passed the complete verification script: Go race tests,
 
 ## Remaining release work
 
-1. Live Linux Wings proof for all five retail installs, real client joins/authentication, map changes, actual framework loading and game-only rollouts. Current standalone CS:GO remains the highest-risk case.
+1. Live Linux Wings proof for all six retail installs, real client joins/authentication, map changes, applicable framework loading and game-only rollouts. Include both GMod architectures and native Lua addons. Current standalone CS:GO remains the highest-risk case.
 2. Real panel import/startup acceptance and a dev-node rollout of the published image/binary pair.
 3. Publish and roll out a matched node/image/egg release containing operational parity, then perform live module acceptance on a dev node.
 4. Additional proposal goals beyond the reference benchmark: canary promotion, verified runtime-health rollback and proactive framework-only restart scheduling. Framework updates currently apply at startup.

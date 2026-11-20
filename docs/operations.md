@@ -1,6 +1,6 @@
 # Node operations
 
-These modules implement the applicable S2Script node operations for all five Source games. Configure them in `sudo sourcenode install`, or edit `/etc/sourcenode/config.json` and restart the service. Fresh installs enable the operational modules; host maintenance starts in dry-run mode. Existing configurations retain saved enable switches and the legacy defaults for omitted settings.
+These modules implement the applicable S2Script node operations for all six Source games. Configure them in `sudo sourcenode install`, or edit `/etc/sourcenode/config.json` and restart the service. Fresh installs enable the operational modules; host maintenance starts in dry-run mode. Existing configurations retain saved enable switches and the legacy defaults for omitted settings.
 
 Install a matched node/image/egg release to use new server capabilities. An older installed node/image does not gain features by changing its config.
 

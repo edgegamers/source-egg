@@ -66,6 +66,7 @@ func InstalledBuild(dir string, id game.Identity) (string, error) {
 		return "", e
 	}
 	p, _ := game.Lookup(id.Game)
+	p = p.ForBranch(id.Branch)
 	root, e := os.OpenRoot(dir)
 	if e != nil {
 		return "", e

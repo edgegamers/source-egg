@@ -1,8 +1,8 @@
 # Source Engine Egg
 
-A Source engine egg for Pelican and Pterodactyl, using the same container/node setup pattern as [S2Script CS2 Egg](https://github.com/s2script/s2script-cs2-egg). Choose **CS:GO, CS:S, DOD:S, L4D2, or TF2** from one game dropdown.
+A Source engine egg for Pelican and Pterodactyl, using the same container/node setup pattern as [S2Script CS2 Egg](https://github.com/s2script/s2script-cs2-egg). Choose **CS:GO, CS:S, DOD:S, GMod, L4D2, or TF2** from one game dropdown.
 
-Included: latest stable Metamod:Source, latest SourceMod prerelease, shared base-game VPKs, central framework caching/pins, game-specific updates/restarts, Discord events, password scopes, node console archives and crash bundles. Optional node modules provide backups/restore, cleanup, resource metrics/Prometheus/top, host maintenance and verified node self-updates. Workshop/map caching and the CS2 connection guard are excluded.
+Included: latest stable Metamod:Source, latest SourceMod prerelease (both skipped for GMod's Lua addon system), shared base-game VPKs, central framework caching/pins, game-specific updates/restarts, Discord events, password scopes, node console archives and crash bundles. Optional node modules provide backups/restore, cleanup, resource metrics/Prometheus/top, host maintenance and verified node self-updates. Workshop/map caching and the CS2 connection guard are excluded.
 
 Release versions come from the GitHub release tag. The bootstrap selects a published stable release and the egg defaults to `:stable`; use `:beta` for testing releases. **Wait for the release workflow to publish the node assets and image before installing.** This is an initial implementation; [live-game acceptance and remaining features](docs/IMPLEMENTATION.md) are tracked separately.
 
@@ -50,16 +50,18 @@ Create a server, select its **Game** before the first start, allocate the game p
 
 Use `ghcr.io/edgegamers/source-egg:stable` for stable releases, or `:beta` for the newest published release including prereleases. Start it: the entrypoint installs the selected game, Metamod and SourceMod. The short panel installation script is intentional; with node-managed files, the container skips its own SteamCMD game download.
 
+For Garry's Mod, choose `GMod` before first start. It defaults to `gm_construct` on the `public` branch; choose `STEAM_BRANCH=x86-64` before installation for its 64-bit launcher. Set `STEAM_GSLT` to a token for app **4000**. GMod uses its own Lua addons, so automatic Metamod/SourceMod installation is skipped. [GMod setup and gamemode/Workshop arguments](docs/install.md#garrys-mod).
+
 Prefer standalone? Skip step 1. `SOURCE_MODE=auto` installs into the server's own volume when no node is present. An already shared installation requires a working node/mount and does not silently write through shared links. [Server installation guide](docs/install.md).
 
 ## 3. Choose framework and password settings
 
 | Panel variable | Default | Purpose |
 |---|---|---|
-| `SOURCE_GAME` | `CS:S` | Select CS:GO, CS:S, DOD:S, L4D2 or TF2 before installation |
-| `INSTALL_METAMOD` | `1` | Install/check latest stable Metamod |
+| `SOURCE_GAME` | `CS:S` | Select CS:GO, CS:S, DOD:S, GMod, L4D2 or TF2 before installation |
+| `INSTALL_METAMOD` | `1` | Install/check latest stable Metamod; skipped for GMod |
 | `METAMOD_VERSION` | empty | Optional exact upstream release tag |
-| `INSTALL_SOURCEMOD` | `1` | Install/check latest SourceMod prerelease |
+| `INSTALL_SOURCEMOD` | `1` | Install/check latest SourceMod prerelease; skipped for GMod |
 | `SOURCEMOD_VERSION` | empty | Optional exact upstream release tag |
 | `STEAM_GSLT` | empty | Game Server Login Token where required |
 | `GENERATE_PASSWORD` | `0` | Opt into node-generated join passwords for dev servers |
@@ -83,7 +85,7 @@ For a dev node sharing one public address, use Docker bridge networking with sep
 
 [Node operations and full CLI](docs/operations.md) · [Complete configuration reference](docs/reference/node-config.md) · [Server controls](docs/server-controls.md).
 
-The installer follows the upstream wizard's sections, help, settings review and progress, with EdgeGamers/Source 1 terminal artwork. It exposes file retention, filters, framework locks, maintenance and password scheduling. Operator commands show readable tables; add `--json` for scripts. Install a matched node/image/egg release for new server features; live five-game acceptance remains a separate release gate.
+The installer follows the upstream wizard's sections, help, settings review and progress, with EdgeGamers/Source 1 terminal artwork. It exposes file retention, filters, framework locks, maintenance and password scheduling. Operator commands show readable tables; add `--json` for scripts. Install a matched node/image/egg release for new server features; live acceptance for every game remains a separate release gate.
 
 GPL-3.0-or-later. Runtime helpers retain attribution to K4ryuu/CS2-Egg-Go and S2Script contributors; see [LICENSE](LICENSE) and [NOTICE](NOTICE).
 

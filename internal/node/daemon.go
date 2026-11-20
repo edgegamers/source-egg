@@ -282,7 +282,12 @@ func (d *Daemon) handle(ctx context.Context, s Server, r Request) (Response, err
 	}
 	return out, nil
 }
-func frameworkEnabled(env map[string]string, name string) bool {
+func frameworkEnabled(s Server, name string) bool {
+	profile, err := game.Lookup(s.Identity.Game)
+	if err != nil || !profile.SupportsFrameworks() {
+		return false
+	}
+	env := s.Env
 	if name == "metamod" && env["INSTALL_SOURCEMOD"] != "0" {
 		return true
 	}

@@ -43,6 +43,9 @@ func (e *Egg) command(p Prepared) (*exec.Cmd, error) {
 	if p.Profile.Runtime == "linux64" {
 		candidates = []string{"srcds_linux64"}
 	}
+	if p.Profile.Key == "gmod" && p.Profile.Runtime == "linux64" {
+		candidates = []string{"bin/linux64/srcds"}
+	}
 	binary := ""
 	for _, name := range candidates {
 		st, err := root.Stat(name)
@@ -70,8 +73,11 @@ func (e *Egg) command(p Prepared) (*exec.Cmd, error) {
 	// Direct execution preserves quoted custom argv across Valve wrappers and
 	// gives gdbserver an ELF inferior. Supply the wrapper's library search paths.
 	libs := []string{e.Config.Dir}
-	if strings.HasSuffix(binary, "64") {
+	if p.Profile.Runtime == "linux64" || strings.HasSuffix(binary, "64") {
 		libs = append(libs, filepath.Join(e.Config.Dir, "bin/linux64"), filepath.Join(e.Config.Dir, p.Profile.Dir, "bin/linux64"))
+	}
+	if p.Profile.Key == "gmod" && p.Profile.Runtime == "linux64" {
+		libs = append(libs, filepath.Join(e.Config.Dir, "linux64"))
 	}
 	libs = append(libs, filepath.Join(e.Config.Dir, "bin"), filepath.Join(e.Config.Dir, p.Profile.Dir, "bin"))
 	if previous := os.Getenv("LD_LIBRARY_PATH"); previous != "" {

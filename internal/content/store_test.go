@@ -15,6 +15,28 @@ type fixtureInstaller struct {
 	fail  bool
 }
 
+func TestGModX64InstallationRequiresItsOwnLauncher(t *testing.T) {
+	p, err := game.Lookup("gmod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := p.Identity("x86-64")
+	dir := t.TempDir()
+	installer := &fixtureInstaller{build: "100"}
+	if err := installer.Install(context.Background(), id, dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InstalledBuild(dir, id); err == nil {
+		t.Fatal("accepted a 32-bit launcher for the x86-64 branch")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "srcds_run_x64"), []byte("run"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if build, err := InstalledBuild(dir, id); err != nil || build != "100" {
+		t.Fatalf("GMod x64 install not recognized: %q, %v", build, err)
+	}
+}
+
 func (f *fixtureInstaller) Install(ctx context.Context, id game.Identity, dir string) error {
 	p, _ := game.Lookup(id.Game)
 	os.MkdirAll(filepath.Join(dir, p.Dir, "cfg"), 0755)

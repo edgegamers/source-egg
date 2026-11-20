@@ -30,7 +30,10 @@ func (p Profile) Command(l Launch) ([]string, error) {
 	if l.MaxPlayers < 0 || l.MaxPlayers > 128 {
 		return nil, errors.New("invalid player limit")
 	}
-	args := []string{p.Executable, "-game", p.Dir, "-console", "-usercon", "-norestart", "-strictportbind", "-ip", "0.0.0.0", "-port", strconv.Itoa(l.Port), "+map", l.Map}
+	args := []string{p.Executable, "-game", p.Dir, "-console", "-usercon", "-norestart", "-strictportbind", "-ip", "0.0.0.0", "-port", strconv.Itoa(l.Port)}
+	if p.Key != "gmod" {
+		args = append(args, "+map", l.Map)
+	}
 	if l.MaxPlayers > 0 {
 		key := "-maxplayers"
 		if p.Key == "csgo" {
@@ -51,6 +54,11 @@ func (p Profile) Command(l Launch) ([]string, error) {
 	extra, err := ParseParams(l.CustomParams)
 	if err != nil {
 		return nil, err
+	}
+	if p.Key == "gmod" {
+		// GMod selects its gamemode before loading the initial map. Custom
+		// +gamemode arguments must therefore precede the managed +map.
+		return append(append(args, extra...), "+map", l.Map), nil
 	}
 	return append(args, extra...), nil
 }
