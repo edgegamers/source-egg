@@ -199,14 +199,18 @@ func games(s string) ([]string, error) {
 		return nil, nil
 	}
 	if s == "all" {
-		return []string{"csgo", "css", "dods", "l4d2", "tf2"}, nil
+		var result []string
+		for _, p := range game.All() {
+			result = append(result, p.Key)
+		}
+		return result, nil
 	}
 	var result []string
 	seen := map[string]bool{}
 	for _, key := range strings.Split(s, ",") {
 		p, e := game.Lookup(strings.TrimSpace(key))
 		if e != nil {
-			return nil, errors.New("Use csgo, css, dods, l4d2, tf2, all or none.")
+			return nil, errors.New("Use csgo, css, dods, gmod, l4d2, tf2, all or none.")
 		}
 		if !seen[p.Key] {
 			result = append(result, p.Key)
@@ -250,7 +254,7 @@ func configure(c node.Config, input io.Reader, output io.Writer) (node.Config, *
 		if list == "" {
 			list = "none"
 		}
-		list = w.ask("Games to prepare now", list, func(s string) error { _, e := games(s); return e }, "csgo, css, dods, l4d2, tf2, all or none. None downloads on first server start.")
+		list = w.ask("Games to prepare now", list, func(s string) error { _, e := games(s); return e }, "csgo, css, dods, gmod, l4d2, tf2, all or none. None downloads on first server start.")
 		c.PrefetchGames, _ = games(list)
 		w.record("Predownload games", list)
 		w.choice(&c.PushMethod, "How VPK files reach servers", []string{"symlink — read-only bind mount and links, minimal disk usage", "hardlink — shared inodes; same filesystem required", "copy — private full copies; more disk space"})

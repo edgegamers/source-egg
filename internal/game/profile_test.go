@@ -12,6 +12,7 @@ func TestLaunchUsesSelectedGameAndKeepsSecretsAsArguments(t *testing.T) {
 		{"csgo", "740", "csgo", "4465480", "de_dust2", "./srcds_run"},
 		{"css", "232330", "cstrike", "240", "de_dust2", "./srcds_run"},
 		{"dods", "232290", "dod", "300", "dod_avalanche", "./srcds_run"},
+		{"gmod", "4020", "garrysmod", "4000", "gm_construct", "./srcds_run"},
 		{"l4d2", "222860", "left4dead2", "550", "c1m1_hotel", "./srcds_run"},
 		{"tf2", "232250", "tf", "440", "cp_dustbowl", "./srcds_run_64"},
 	} {
@@ -34,6 +35,31 @@ func TestLaunchUsesSelectedGameAndKeepsSecretsAsArguments(t *testing.T) {
 				t.Fatal("password was shell-expanded/split", args)
 			}
 		})
+	}
+}
+
+func TestGModDefaultsAndBranchIdentities(t *testing.T) {
+	for _, key := range []string{"gmod", "GMod", "garrysmod", "Garry's Mod"} {
+		p, err := Lookup(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args, err := p.Command(Launch{Port: 27015, CustomParams: "+gamemode terrortown"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(strings.Join(args, "|"), "+gamemode|terrortown|+map|gm_construct") {
+			t.Fatalf("gamemode must precede the default startup map: %q", args)
+		}
+		for _, tc := range []struct{ branch, runtime string }{{"public", "linux32"}, {"x86-64", "linux64"}} {
+			id, err := p.Identity(tc.branch)
+			if err != nil || id.Game != "gmod" || id.AppID != "4020" || id.Runtime != tc.runtime {
+				t.Fatalf("wrong GMod identity: %+v, %v", id, err)
+			}
+			if err := id.Validate(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 

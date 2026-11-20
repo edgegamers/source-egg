@@ -1,6 +1,6 @@
 # Server controls
 
-Set these variables in the server's panel Startup settings, then restart the server. The controls apply to CS:GO, CS:S, DOD:S, L4D2, and TF2. The egg reads custom arguments itself; keep the supplied panel startup command instead of inserting `{{CUSTOM_PARAMS}}` into a shell command.
+Set these variables in the server's panel Startup settings, then restart the server. The controls apply to CS:GO, CS:S, DOD:S, GMod, L4D2, and TF2; GMod skips the Metamod/SourceMod controls and uses its own Lua addons. The egg reads custom arguments itself; keep the supplied panel startup command instead of inserting `{{CUSTOM_PARAMS}}` into a shell command.
 
 | Panel variable | Default | Purpose |
 | --- | --- | --- |
@@ -214,10 +214,11 @@ It launches a new engine process under the debugger; it does not attach to an ex
 | --- | --- |
 | CS:GO, CS:S, DOD:S | `srcds_linux64` when present, otherwise `srcds_linux`. |
 | L4D2 | `srcds_linux`. |
+| GMod | `srcds_linux` on `public`; `bin/linux64/srcds` on `x86-64`. |
 | TF2 | `srcds_linux64`. |
 
 The selected file must exist and be executable. Missing binaries or `gdbserver` stop startup; the egg does not silently fall back to a different launch mode. The native engine receives the normal game arguments plus validated custom arguments, with library paths for the selected architecture.
 
 The container must permit debugging through its ptrace/security policy, and the allocated TCP port must be reachable from the debugger. The egg does not change panel allocations, firewall rules, or container security settings. Debugger access controls the game process: restrict access to the debug port and clear `GDB_DEBUG_PORT` or set it to `0` when finished. Install matching binaries/symbols in the debugging client as needed; the egg does not supply game debug symbols.
 
-Native launches and argument handling are tested with temporary fake executables for all five profiles. The debugger wrapper is tested with a fake `gdbserver`. Acceptance against retail game binaries, a real debugger, and the runtime container remains a separate deployment check.
+Native launches and argument handling are tested with temporary fake executables for all six profiles, including both GMod architectures. The debugger wrapper is tested with a fake `gdbserver`. Acceptance against retail game binaries, a real debugger, and the runtime container remains a separate deployment check.

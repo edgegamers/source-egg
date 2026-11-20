@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,6 +27,34 @@ func deliveryDaemon(t *testing.T) *Daemon {
 		t.Fatal(err)
 	}
 	return d
+}
+
+func TestGModNodePreparationSkipsFrameworkCacheWithDefaultPanelToggles(t *testing.T) {
+	d := deliveryDaemon(t)
+	d.Config.FrameworkCache = true
+	d.Config.PushMethod = "copy"
+	d.Store.Installer = warmupInstaller{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "framework downloads unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	d.Cache.Resolver.API = srv.URL
+	p, err := game.Lookup("gmod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := p.Identity("public")
+	s := Server{UUID: "gmod-server", Boot: "boot", Volume: t.TempDir(), Identity: id, Env: map[string]string{"INSTALL_METAMOD": "1", "INSTALL_SOURCEMOD": "1"}}
+	out, err := d.handle(context.Background(), s, Request{Action: "prepare", HostDelivery: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Delivered || !out.Managed || len(out.Frameworks) != 0 {
+		t.Fatalf("GMod preparation should deliver the game without frameworks: %+v", out)
+	}
+	if _, err := os.Stat(filepath.Join(s.Volume, "garrysmod/gameinfo.txt")); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestPrepareDeliversSelectedCopyBeforeAcknowledging(t *testing.T) {

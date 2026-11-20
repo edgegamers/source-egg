@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edgegamers/source-egg/internal/addons"
 	"github.com/edgegamers/source-egg/internal/game"
 	"github.com/edgegamers/source-egg/internal/node"
 )
@@ -19,6 +20,36 @@ type installRecorder struct{ calls int }
 func (i *installRecorder) Install(ctx context.Context, id game.Identity, dir string) error {
 	i.calls++
 	return nil
+}
+
+func TestGModBootSkipsAutomaticFrameworksAndSelectsBranchLauncher(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "frameworks must not be needed for GMod", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	for _, tc := range []struct{ branch, launcher, runtime string }{
+		{"public", "./srcds_run", "linux32"},
+		{"x86-64", "./srcds_run_x64", "linux64"},
+	} {
+		t.Run(tc.branch, func(t *testing.T) {
+			cfg := optionsConfig(t, map[string]string{"SOURCE_GAME": "GMod", "STEAM_BRANCH": tc.branch, "INSTALL_METAMOD": "1", "INSTALL_SOURCEMOD": "1"})
+			cache := addons.NewCache(t.TempDir(), srv.Client())
+			cache.Resolver.API = srv.URL
+			e := Egg{Config: cfg, Installer: &installRecorder{}, Cache: cache}
+			prepared, err := e.Prepare(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if prepared.Args[0] != tc.launcher || prepared.Identity.Runtime != tc.runtime {
+				t.Fatalf("wrong GMod launch: %+v", prepared)
+			}
+			for _, name := range []string{"metamod", "sourcemod"} {
+				if _, err := os.Stat(filepath.Join(cfg.Dir, ".source/framework-"+name+".json")); !os.IsNotExist(err) {
+					t.Fatalf("unexpected framework receipt: %v", err)
+				}
+			}
+		})
+	}
 }
 func TestStandaloneBootAndManagedFallbackBoundary(t *testing.T) {
 	cfg := Config{Dir: t.TempDir(), Game: "css", Branch: "public", Mode: "standalone", Port: 27015}
