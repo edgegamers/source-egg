@@ -95,20 +95,9 @@ func TestDeliveryMethodsKeepGenerationsAndPrivateFiles(t *testing.T) {
 				if err := os.MkdirAll(filepath.Join(volume, profile.Dir, "cfg"), 0755); err != nil {
 					t.Fatal(err)
 				}
-				privateFiles := map[string]string{profile.Dir + "/cfg/server.cfg": "private"}
-				if profile.Key == "gmod" {
-					privateFiles["garrysmod/lua/autorun/server/community.lua"] = "private Lua"
-					privateFiles["garrysmod/gamemodes/community/gamemode/init.lua"] = "private gamemode"
-					privateFiles["garrysmod/addons/community/lua/autorun/init.lua"] = "private addon"
-					privateFiles["garrysmod/data/community/settings.txt"] = "private data"
-				}
-				for path, value := range privateFiles {
-					if err := os.MkdirAll(filepath.Join(volume, filepath.Dir(path)), 0755); err != nil {
-						t.Fatal(err)
-					}
-					if err := os.WriteFile(filepath.Join(volume, path), []byte(value), 0600); err != nil {
-						t.Fatal(err)
-					}
+				private := filepath.Join(volume, profile.Dir, "cfg/server.cfg")
+				if err := os.WriteFile(private, []byte("private"), 0600); err != nil {
+					t.Fatal(err)
 				}
 				opts := DeployOptions{Method: method}
 				if err := DeployWithOptions(first, volume, store.Dir, opts); err != nil {
@@ -134,11 +123,7 @@ func TestDeliveryMethodsKeepGenerationsAndPrivateFiles(t *testing.T) {
 				if err := DeployWithOptions(second, volume, store.Dir, opts); err != nil {
 					t.Fatal(err)
 				}
-				wantFiles := map[string]string{stock: "chunk-200", filepath.Join(first.Path, profile.Dir, "pak01_000.vpk"): "chunk-100"}
-				for path, value := range privateFiles {
-					wantFiles[filepath.Join(volume, path)] = value
-				}
-				for name, want := range wantFiles {
+				for name, want := range map[string]string{stock: "chunk-200", filepath.Join(first.Path, profile.Dir, "pak01_000.vpk"): "chunk-100", private: "private"} {
 					data, err := os.ReadFile(name)
 					if err != nil || string(data) != want {
 						t.Fatalf("%s = %q, %v; want %q", name, data, err, want)

@@ -144,11 +144,9 @@ func (e *Egg) watch(ctx context.Context, server *supervisor.Server, p Prepared, 
 			if ready {
 				players = info.Players
 				if !checksSent {
-					if p.Profile.SupportsFrameworks() {
-						_ = server.Send("meta version")
-						if e.Config.InstallSourceMod {
-							_ = server.Send("sm version")
-						}
+					_ = server.Send("meta version")
+					if e.Config.InstallSourceMod {
+						_ = server.Send("sm version")
 					}
 					checksSent = true
 					line(panelReadyLine)

@@ -134,7 +134,7 @@ func (d *Daemon) prepareResponse(ctx context.Context, s Server, host bool) (Resp
 	}
 	if d.Config.FrameworkCache {
 		for _, name := range []string{"metamod", "sourcemod"} {
-			if !frameworkEnabled(s, name) {
+			if !frameworkEnabled(s.Env, name) {
 				continue
 			}
 			pkg, e := d.Cache.Resolve(ctx, name, d.frameworkPin(s, name))
