@@ -21,21 +21,6 @@ func defaults(root string) node.Config {
 	c.SteamCMD = filepath.Join(root, "steam/steamcmd.sh")
 	return c
 }
-
-func TestPredownloadIncludesGModAndDeduplicatesAliases(t *testing.T) {
-	for _, tc := range []struct {
-		input string
-		want  []string
-	}{
-		{"all", []string{"csgo", "css", "dods", "gmod", "l4d2", "tf2"}},
-		{"GMod,gmod,garrysmod,CS:S", []string{"gmod", "css"}},
-	} {
-		got, err := games(tc.input)
-		if err != nil || !reflect.DeepEqual(got, tc.want) {
-			t.Fatalf("games(%q) = %v, %v; want %v", tc.input, got, err, tc.want)
-		}
-	}
-}
 func TestWizardConfiguresFeaturesScopesAndSelectedGames(t *testing.T) {
 	base := defaults(t.TempDir())
 	var out bytes.Buffer

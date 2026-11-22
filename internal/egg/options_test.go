@@ -499,16 +499,11 @@ func TestStandardLaunchPassesMetadataLiterallyWithoutShellEvaluation(t *testing.
 }
 
 func TestDirectArgvLaunchUsesEachGameArchitecture(t *testing.T) {
-	for _, tc := range []struct{ game, branch, binary string }{
-		{"css", "public", "./srcds_linux64"}, {"csgo", "public", "./srcds_linux64"},
-		{"dods", "public", "./srcds_linux64"}, {"l4d2", "public", "./srcds_linux"},
-		{"tf2", "public", "./srcds_linux64"}, {"gmod", "public", "./srcds_linux"},
-		{"gmod", "x86-64", "./bin/linux64/srcds"},
-	} {
-		t.Run(tc.game+"/"+tc.branch, func(t *testing.T) {
-			cfg := optionsConfig(t, map[string]string{"SOURCE_GAME": tc.game, "STEAM_BRANCH": tc.branch, "CUSTOM_PARAMS": `+sv_tags "test server"`, "CONSOLE_LOG_LEVEL": "ERROR"})
-			for _, name := range []string{"srcds_linux", "srcds_linux64", "bin/linux64/srcds"} {
-				writeOptionFile(t, cfg.Dir, name, "#!/bin/sh\nprintf '%s\\n' \"$0\" > native-binary\nprintf '%s\\n' \"$@\" > native-args\nprintf '%s\\n' \"$LD_LIBRARY_PATH\" > native-libs\n")
+	for _, tc := range []struct{ game, binary string }{{"css", "./srcds_linux64"}, {"csgo", "./srcds_linux64"}, {"dods", "./srcds_linux64"}, {"l4d2", "./srcds_linux"}, {"tf2", "./srcds_linux64"}} {
+		t.Run(tc.game, func(t *testing.T) {
+			cfg := optionsConfig(t, map[string]string{"SOURCE_GAME": tc.game, "CUSTOM_PARAMS": `+sv_tags "test server"`, "CONSOLE_LOG_LEVEL": "ERROR"})
+			for _, name := range []string{"srcds_linux", "srcds_linux64"} {
+				writeOptionFile(t, cfg.Dir, name, "#!/bin/sh\nprintf '%s\\n' \"$0\" > native-binary\nprintf '%s\\n' \"$@\" > native-args\n")
 				if err := os.Chmod(filepath.Join(cfg.Dir, name), 0755); err != nil {
 					t.Fatal(err)
 				}
@@ -527,18 +522,6 @@ func TestDirectArgvLaunchUsesEachGameArchitecture(t *testing.T) {
 			args, err := os.ReadFile(filepath.Join(cfg.Dir, "native-args"))
 			if err != nil || !strings.Contains(string(args), "+sv_tags\ntest server\n") {
 				t.Fatalf("lost quoted params %q,%v", args, err)
-			}
-			if tc.game == "gmod" && tc.branch == "x86-64" {
-				libs, err := os.ReadFile(filepath.Join(cfg.Dir, "native-libs"))
-				if err != nil {
-					t.Fatal(err)
-				}
-				paths := ":" + strings.TrimSpace(string(libs)) + ":"
-				for _, path := range []string{"bin/linux64", "linux64"} {
-					if !strings.Contains(paths, ":"+filepath.Join(cfg.Dir, path)+":") {
-						t.Fatalf("GMod x64 library path %s missing from %q", path, libs)
-					}
-				}
 			}
 		})
 	}

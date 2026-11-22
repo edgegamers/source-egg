@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/edgegamers/source-egg/main/scripts/
 | --- | --- |
 | Node releases | Stable/beta/dev channel, automatic updates and check interval |
 | Base-game files | Shared directory, SteamCMD path/validation, symlink/hardlink/copy delivery and worker count |
-| Games to prepare now | Comma-separated `csgo,css,dods,gmod,l4d2,tf2`, `all`, or `none` to wait for the first server |
+| Games to prepare now | Comma-separated `csgo,css,dods,l4d2,tf2`, `all`, or `none` to wait for the first server |
 | Game updates | Check interval, automatic restart switch, immediate/empty/window policy, delay and countdown |
 | Metamod/SourceMod cache | Directory, metadata refresh, archive retention and exact fleet versions |
 | Passwords | Master switch, game/server/node scope, token/EFF phrases, custom dictionary and private directory |

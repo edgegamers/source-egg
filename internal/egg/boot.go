@@ -64,7 +64,6 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 	if err != nil {
 		return result, err
 	}
-	p = p.ForBranch(c.Branch)
 	id, err := p.Identity(c.Branch)
 	if err != nil {
 		return result, err
@@ -222,9 +221,6 @@ func (e *Egg) Prepare(ctx context.Context) (Prepared, error) {
 	return result, nil
 }
 func (e *Egg) frameworks(ctx context.Context, p game.Profile, response node.Response) error {
-	if !p.SupportsFrameworks() {
-		return nil
-	}
 	installed := map[string]bool{}
 	for _, f := range response.Frameworks {
 		e.progress("Applying cached " + f.Package.Name + " " + f.Package.Version)

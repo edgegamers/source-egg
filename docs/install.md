@@ -16,51 +16,13 @@ For shared files, [set up the optional Wings node](node.md) first. No node is re
    The export embeds a square 512 × 512 Source-logo PNG as the Pelican egg icon. Updating/reimporting the egg applies the picture on panels supporting embedded icons. For manual upload, use `assets/source-logo.png`; older Pterodactyl panels may ignore this visual metadata.
 3. Choose the game and branch before first start. Changes on an existing volume fail with a new-volume/reinstall instruction.
 4. Set map/hostname/player settings and applicable Steam credentials/GSLT. Empty map uses a game-specific default. Empty Steam username uses anonymous login; authenticated branches need a pre-authorized session for unattended Steam Guard use.
-5. Start. Game updates run before the process. Metamod stable and SourceMod prerelease are checked at startup for games other than GMod. Exact pins use full upstream tags, such as `1.12.0.1228` and `1.13.0.7478`.
+5. Start. Game updates run before the process. Metamod stable and SourceMod prerelease are checked at startup. Exact pins use full upstream tags, such as `1.12.0.1228` and `1.13.0.7478`.
 
 SteamCMD is seeded into `/home/container/.source/steamcmd` so it can self-update under Wings' read-only image root and arbitrary UID. Framework configs/data remain private. Unmodified stock plugins/extensions upgrade; custom edits and disabled/deleted defaults are preserved.
 
 `INSTALL_SOURCEMOD=1` requires Metamod even if its separate toggle is off. Toggles control installation/update; they do not uninstall existing frameworks.
 
 Frameworks unpack into private temporary directories on the server volume, following the S2Script egg's disk-backed staging approach. Staging is removed after success or failure. Wings' default 100 MB `/tmp` limit is supported without changing the node configuration; the server volume needs room for both staging and the installed files.
-
-## Garry's Mod
-
-Select `SOURCE_GAME=GMod` before first start. The runtime also accepts `gmod`,
-`garrysmod`, and `Garry's Mod` outside the panel selector. The dedicated server
-downloads anonymously through SteamCMD app **4020**, uses the `garrysmod`
-directory, and defaults to `gm_construct` with the Sandbox gamemode.
-[Facepunch server setup](https://wiki.facepunch.com/gmod/Downloading_a_Dedicated_Server).
-
-Keep `STEAM_BRANCH=public` for the standard 32-bit server, or select `x86-64`
-before installation to use `srcds_run_x64`. The runtime selects the matching
-native binary for custom arguments and debugging. Changing branch on an
-existing installation requires a fresh volume or explicit reinstall.
-
-Generate a unique GSLT for base-game app **4000** and enter it in `STEAM_GSLT`.
-[Facepunch GSLT instructions](https://wiki.facepunch.com/gmod/Steam_Game_Server_Accounts).
-
-Automatic Metamod/SourceMod installation and node framework downloads are skipped
-for GMod, regardless of the framework toggles. Install Lua addons in
-`garrysmod/addons/`, custom gamemodes in `garrysmod/gamemodes/`, and server Lua in
-`garrysmod/lua/autorun/server/`. Files you add there and in `garrysmod/data/`
-remain private and survive managed base-game updates while their paths remain
-outside Steam's file inventory. Shipped game files outside the existing seed-only
-configuration/addon paths are updated normally: edits to shipped Lua/gamemode
-files are replaced, and a later Steam update can replace a custom file if it
-starts shipping that path. Keep custom overrides in `garrysmod/addons/` when
-possible; that directory is seeded once and existing files are preserved.
-
-Use `CUSTOM_PARAMS` for native GMod options. For example, select the built-in TTT
-gamemode with `+gamemode terrortown` and set `SRCDS_MAP` to a suitable installed
-map. GMod gamemode arguments run before the startup map. To use a Workshop
-collection, add `+host_workshop_collection YOUR_COLLECTION_ID`; GMod handles its
-downloads into the server's own files. The egg does not cache or manage Workshop
-content on the node. [Native Workshop options](https://wiki.facepunch.com/gmod/Downloading_a_Dedicated_Server).
-
-Both standalone and node-managed paths have fixture coverage. A retail install,
-real client join, Lua addons, Workshop downloads and map changes still need live
-acceptance on the deployment node.
 
 ## Optional node
 
@@ -174,4 +136,4 @@ Local console logs remain `.source/logs/console.log`, rotating at 32 MiB with th
 
 Backups/restore, resource metrics/Prometheus/top, scheduled cleanup, host maintenance, verified node updates and uninstall are documented in [Node operations](operations.md). Panel startup parameters, SourceMod plugin switches, standalone cleanup, console filtering and debugging are in [Server controls](server-controls.md). See the [complete node configuration](reference/node-config.md).
 
-Real game startup, client authentication/joins, map changes, applicable framework loading and live panel/Wings acceptance remain release gates for all six games. A2S readiness is not proof of third-party plugin health. Automatic canaries/health rollback remain beyond reference parity. Workshop/map caching and the connection guard are excluded.
+Real game startup, client authentication/joins, map changes, framework loading and live panel/Wings acceptance remain release gates for all five games. A2S readiness is not proof of third-party plugin health. Automatic canaries/health rollback remain beyond reference parity. Workshop/map caching and the connection guard are excluded.
